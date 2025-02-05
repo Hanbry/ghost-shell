@@ -17,4 +17,4 @@ int main(void) {
     shell_cleanup(&ctx);
     
     return ctx.last_status;
-} 
+}

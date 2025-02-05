@@ -10,16 +10,7 @@
 #include <dirent.h>
 #include <pwd.h>
 #include <ctype.h>
-
-/* Check if GNU readline was explicitly requested */
-#ifdef USE_GNU_READLINE
-    #include <readline/readline.h>
-    #include <readline/history.h>
-#else
-    /* Default to editline (BSD licensed) */
-    #include <editline/readline.h>
-    #include <histedit.h>
-#endif
+#include <histedit.h>
 
 /* ANSI Color and Style codes */
 #define COLOR_RESET     "\033[0m"
@@ -50,10 +41,8 @@
 #define GHOST_HISTORY_SIZE 1000
 
 /* Global history state */
-#ifndef USE_GNU_READLINE
 extern History *hist;
 extern HistEvent ev;
-#endif
 
 /* Command structure */
 typedef struct {
@@ -66,12 +55,16 @@ typedef struct {
 } Command;
 
 /* Shell context structure */
-typedef struct {
+typedef struct ShellContext {
     char *current_dir;    /* Current working directory */
     int exit_flag;        /* Shell exit flag */
     int last_status;      /* Last command exit status */
     char *history_file;   /* Path to history file */
+    struct GhostAIContext *ai_ctx; /* Ghost AI context */
 } ShellContext;
+
+/* Include ghost_ai.h after ShellContext is defined */
+#include "ghost_ai.h"
 
 /* Core shell functions */
 void shell_init(ShellContext *ctx);
@@ -88,6 +81,8 @@ int builtin_cd(Command *cmd, ShellContext *ctx);
 int builtin_exit(Command *cmd, ShellContext *ctx);
 int builtin_help(Command *cmd, ShellContext *ctx);
 int builtin_history(Command *cmd, ShellContext *ctx);
+int builtin_call(Command *cmd, ShellContext *ctx);
+int builtin_export(Command *cmd, ShellContext *ctx);
 
 /* Utility functions */
 char *read_line(void);
@@ -103,4 +98,4 @@ char *command_generator(const char *text, int state);
 char **ghost_completion(const char *text, int start, int end);
 void initialize_readline(void);
 
-#endif /* GHOST_SHELL_H */ 
+#endif /* GHOST_SHELL_H */
