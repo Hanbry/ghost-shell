@@ -8,11 +8,8 @@
 
 /* Global state */
 static EditLine *el = NULL;
-History *hist = NULL;  /* Non-static to match extern */
-HistEvent ev;          /* Non-static to match extern */
-
-/* Forward declarations */
-static char *get_prompt(EditLine *edit_line);
+History *hist = NULL;
+HistEvent ev;
 
 /* Prompt function for libedit */
 static char *get_prompt(EditLine *edit_line) {

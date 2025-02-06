@@ -14,7 +14,6 @@
 #include "prompt.h"
 
 #define GHOST_SHELL_VERSION "0.1.0"
-#define GHOST_SHELL_PROMPT "ghost> "
 #define GHOST_MAX_INPUT_SIZE 4096
 #define GHOST_MAX_ARGS 64
 #define GHOST_HISTORY_SIZE 1000
@@ -36,6 +35,9 @@ typedef struct ghost_command {
     struct ghost_command *next;  /* Next command in pipeline */
 } ghost_command;
 
+/* Forward declaration for ghost_ai_context */
+struct ghost_ai_context;
+
 /* Shell context structure */
 typedef struct shell_context {
     char *current_dir;    /* Current working directory */
@@ -45,9 +47,6 @@ typedef struct shell_context {
     struct ghost_ai_context *ai_ctx; /* Ghost AI context */
     char *last_prompt;    /* Last user prompt for AI analysis */
 } shell_context;
-
-/* Include ghost_ai.h after shell_context is defined */
-#include "ghost_ai.h"
 
 /* Core shell functions */
 void shell_init(shell_context *ctx);

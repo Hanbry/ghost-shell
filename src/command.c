@@ -12,10 +12,9 @@
 #include <histedit.h>
 
 /* Forward declarations of static functions */
+static ghost_command *parse_single_command(char *input, char **next_cmd);
 static int is_builtin(const char *cmd);
 static int handle_builtin(ghost_command *cmd, shell_context *ctx);
-static ghost_command *parse_single_command(char *input, char **next_cmd);
-static void setup_pipes(int in_fd, int out_fd);
 
 /* Helper function to expand environment variables in a string */
 static char *expand_env_vars(const char *str) {
