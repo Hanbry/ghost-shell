@@ -162,6 +162,14 @@ int builtin_call(Command *cmd, ShellContext *ctx) {
         strcat(prompt, cmd->args[i]);
     }
     
+    /* Store the prompt for later analysis */
+    free(ctx->last_prompt);
+    ctx->last_prompt = strdup(prompt);
+    if (!ctx->last_prompt) {
+        fprintf(stderr, "Failed to store prompt\n");
+        return 1;
+    }
+    
     /* Process the prompt */
     ctx->ai_ctx->in_ghost_mode = 1;
     int result = ghost_ai_process(prompt, ctx->ai_ctx, ctx);

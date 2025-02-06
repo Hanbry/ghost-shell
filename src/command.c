@@ -8,10 +8,14 @@
 #include <limits.h>
 #include <ctype.h>
 #include <sys/wait.h>
+#include <fcntl.h>
+#include <histedit.h>
 
 /* Forward declarations of static functions */
 static int is_builtin(const char *cmd);
 static int handle_builtin(Command *cmd, ShellContext *ctx);
+static Command *parse_single_command(char *input, char **next_cmd);
+static void setup_pipes(int in_fd, int out_fd);
 
 /* Helper function to expand environment variables in a string */
 static char *expand_env_vars(const char *str) {
@@ -61,12 +65,95 @@ static char *expand_env_vars(const char *str) {
     return result;
 }
 
+/* Helper function to read here-document content */
+static char *read_here_doc(const char *delimiter) {
+    char *content = malloc(GHOST_MAX_INPUT_SIZE);
+    char *line = NULL;
+    size_t total_len = 0;
+    EditLine *el = el_init("ghost-shell", stdin, stdout, stderr);
+    
+    if (!content || !el) {
+        free(content);
+        if (el) el_end(el);
+        return NULL;
+    }
+    content[0] = '\0';
+    
+    printf("heredoc> ");
+    int count;
+    while ((line = (char *)el_gets(el, &count)) != NULL) {
+        /* Remove trailing newline */
+        if (count > 0) {
+            line[count-1] = '\0';
+        }
+        
+        if (strcmp(line, delimiter) == 0) {
+            break;
+        }
+        
+        size_t line_len = strlen(line);
+        if (total_len + line_len + 2 >= GHOST_MAX_INPUT_SIZE) {
+            fprintf(stderr, "ghost-shell: here-document too large\n");
+            el_end(el);
+            free(content);
+            return NULL;
+        }
+        
+        strcat(content, line);
+        strcat(content, "\n");
+        total_len += line_len + 1;
+        printf("heredoc> ");
+    }
+    
+    el_end(el);
+    return content;
+}
+
 Command *parse_command(const char *input) {
+    char *input_copy = strdup(input);
+    char *next_cmd = NULL;
+    Command *first_cmd = NULL;
+    Command *current_cmd = NULL;
+    char *cmd_str = input_copy;
+    
+    while (cmd_str && *cmd_str) {
+        Command *cmd = parse_single_command(cmd_str, &next_cmd);
+        if (!cmd) {
+            if (first_cmd) free_command(first_cmd);
+            free(input_copy);
+            return NULL;
+        }
+        
+        if (!first_cmd) {
+            first_cmd = cmd;
+            current_cmd = cmd;
+        } else {
+            current_cmd->next = cmd;
+            current_cmd = cmd;
+        }
+        
+        cmd_str = next_cmd;
+    }
+    
+    free(input_copy);
+    return first_cmd;
+}
+
+static Command *parse_single_command(char *input, char **next_cmd) {
     Command *cmd = calloc(1, sizeof(Command));
     char *expanded_input;
+    char *pipe_pos;
     
-    if (!cmd) {
-        return NULL;
+    if (!cmd) return NULL;
+    
+    /* Find pipe if it exists */
+    pipe_pos = strchr(input, '|');
+    if (pipe_pos) {
+        *pipe_pos = '\0';
+        *next_cmd = pipe_pos + 1;
+        while (**next_cmd == ' ') (*next_cmd)++;  /* Skip spaces after pipe */
+    } else {
+        *next_cmd = NULL;
     }
     
     /* Expand environment variables in input */
@@ -94,23 +181,43 @@ Command *parse_command(const char *input) {
     
     /* Parse for redirections and background execution */
     for (int i = 0; i < cmd->arg_count; i++) {
-        if (strcmp(cmd->args[i], "<") == 0 && i + 1 < cmd->arg_count) {
-            cmd->input_file = strdup(cmd->args[i + 1]);
+        if (strcmp(cmd->args[i], "<<") == 0 && i + 1 < cmd->arg_count) {
+            /* Here document */
+            cmd->here_doc = read_here_doc(cmd->args[i + 1]);
+            if (!cmd->here_doc) {
+                free_command(cmd);
+                return NULL;
+            }
             /* Remove redirection from args */
-            memmove(&cmd->args[i], &cmd->args[i + 2], 
+            memmove(&cmd->args[i], &cmd->args[i + 2],
+                    (cmd->arg_count - i - 2) * sizeof(char*));
+            cmd->arg_count -= 2;
+            i--;
+        } else if (strcmp(cmd->args[i], "<") == 0 && i + 1 < cmd->arg_count) {
+            /* Input redirection */
+            cmd->input_file = strdup(cmd->args[i + 1]);
+            memmove(&cmd->args[i], &cmd->args[i + 2],
+                    (cmd->arg_count - i - 2) * sizeof(char*));
+            cmd->arg_count -= 2;
+            i--;
+        } else if (strcmp(cmd->args[i], ">>") == 0 && i + 1 < cmd->arg_count) {
+            /* Append output */
+            cmd->output_file = strdup(cmd->args[i + 1]);
+            cmd->append_output = 1;
+            memmove(&cmd->args[i], &cmd->args[i + 2],
                     (cmd->arg_count - i - 2) * sizeof(char*));
             cmd->arg_count -= 2;
             i--;
         } else if (strcmp(cmd->args[i], ">") == 0 && i + 1 < cmd->arg_count) {
+            /* Output redirection */
             cmd->output_file = strdup(cmd->args[i + 1]);
-            /* Remove redirection from args */
+            cmd->append_output = 0;
             memmove(&cmd->args[i], &cmd->args[i + 2],
                     (cmd->arg_count - i - 2) * sizeof(char*));
             cmd->arg_count -= 2;
             i--;
         } else if (strcmp(cmd->args[i], "&") == 0) {
             cmd->background = 1;
-            /* Remove & from args */
             free(cmd->args[i]);
             cmd->arg_count--;
         }
@@ -122,135 +229,177 @@ Command *parse_command(const char *input) {
     return cmd;
 }
 
+/* Helper function to set up pipes */
+static void setup_pipes(int in_fd, int out_fd) {
+    if (in_fd != STDIN_FILENO) {
+        dup2(in_fd, STDIN_FILENO);
+        close(in_fd);
+    }
+    if (out_fd != STDOUT_FILENO) {
+        dup2(out_fd, STDOUT_FILENO);
+        close(out_fd);
+    }
+}
+
 int execute_command(Command *cmd, ShellContext *ctx) {
-    pid_t pid;
-    int status = 0;
+    if (!cmd) return 1;
     
-    /* Check for built-in commands first */
-    if (is_builtin(cmd->name)) {
+    /* Handle built-in commands (only for non-piped commands) */
+    if (!cmd->next && is_builtin(cmd->name)) {
         return handle_builtin(cmd, ctx);
     }
     
-    /* Check if command exists and is executable */
-    char *cmd_path = NULL;
-    if (cmd->name[0] == '/' || cmd->name[0] == '.') {
-        /* Absolute path or relative to current directory */
-        if (access(cmd->name, F_OK) != 0) {
-            fprintf(stderr, "ghost-shell: no such file or directory: %s\n", cmd->name);
-            return 127;
-        }
-        if (access(cmd->name, X_OK) != 0) {
-            fprintf(stderr, "ghost-shell: permission denied: %s\n", cmd->name);
-            return 126;
-        }
-        cmd_path = strdup(cmd->name);
-    } else {
-        /* Search in PATH */
-        const char *path = getenv("PATH");
-        if (!path) path = "/usr/local/bin:/usr/bin:/bin";
-        
-        char *path_copy = strdup(path);
-        char *dir = strtok(path_copy, ":");
-        
-        while (dir) {
-            char full_path[PATH_MAX];
-            snprintf(full_path, sizeof(full_path), "%s/%s", dir, cmd->name);
-            
-            if (access(full_path, F_OK | X_OK) == 0) {
-                cmd_path = strdup(full_path);
-                break;
-            }
-            dir = strtok(NULL, ":");
-        }
-        free(path_copy);
-        
-        if (!cmd_path) {
-            fprintf(stderr, "ghost-shell: command not found: %s\n", cmd->name);
-            return 127;
-        }
+    int status = 0;
+    int prev_pipe[2] = {STDIN_FILENO, STDOUT_FILENO};
+    Command *current = cmd;
+    pid_t *pids = NULL;  /* Array to store all process IDs */
+    int pid_count = 0;
+    
+    /* Count number of commands in pipeline */
+    for (Command *c = cmd; c != NULL; c = c->next) {
+        pid_count++;
     }
     
-    /* Fork and execute external command */
-    pid = fork();
-    if (pid == 0) {
-        /* Child process */
-        
-        /* Handle input redirection */
-        if (cmd->input_file) {
-            if (access(cmd->input_file, F_OK) != 0) {
-                fprintf(stderr, "ghost-shell: no such file or directory: %s\n", cmd->input_file);
-                exit(1);
-            }
-            if (access(cmd->input_file, R_OK) != 0) {
-                fprintf(stderr, "ghost-shell: permission denied: %s\n", cmd->input_file);
-                exit(1);
-            }
-            FILE *input = freopen(cmd->input_file, "r", stdin);
-            if (!input) {
-                fprintf(stderr, "ghost-shell: failed to open input file: %s\n", cmd->input_file);
-                exit(1);
-            }
-        }
-        
-        /* Handle output redirection */
-        if (cmd->output_file) {
-            /* Check directory permissions if file doesn't exist */
-            char *dir_copy = strdup(cmd->output_file);
-            char *dir_name = dirname(dir_copy);
-            if (access(dir_name, W_OK) != 0) {
-                fprintf(stderr, "ghost-shell: permission denied: %s\n", cmd->output_file);
-                free(dir_copy);
-                exit(1);
-            }
-            free(dir_copy);
-            
-            FILE *output = freopen(cmd->output_file, "w", stdout);
-            if (!output) {
-                fprintf(stderr, "ghost-shell: failed to open output file: %s\n", cmd->output_file);
-                exit(1);
-            }
-        }
-        
-        /* Execute the command */
-        execv(cmd_path, cmd->args);
-        
-        /* If we get here, execv failed */
-        fprintf(stderr, "ghost-shell: failed to execute: %s\n", cmd->name);
-        exit(126);
-    } else if (pid < 0) {
-        /* Fork failed */
-        fprintf(stderr, "ghost-shell: fork failed: %s\n", strerror(errno));
-        free(cmd_path);
+    /* Allocate pid array */
+    pids = malloc(sizeof(pid_t) * pid_count);
+    if (!pids) {
+        perror("ghost-shell: malloc failed");
         return 1;
     }
     
-    free(cmd_path);
-    
-    /* Parent process */
-    if (!cmd->background) {
-        /* Wait for child if not running in background */
-        waitpid(pid, &status, 0);
-        if (WIFSIGNALED(status)) {
-            fprintf(stderr, "ghost-shell: %s: terminated by signal %d\n", 
-                    cmd->name, WTERMSIG(status));
-            return 128 + WTERMSIG(status);
+    int cmd_index = 0;
+    while (current) {
+        int pipe_fds[2] = {STDIN_FILENO, STDOUT_FILENO};
+        
+        /* Create pipe if there's a next command */
+        if (current->next) {
+            if (pipe(pipe_fds) < 0) {
+                perror("ghost-shell: pipe failed");
+                free(pids);
+                return 1;
+            }
         }
-        return WEXITSTATUS(status);
+        
+        pid_t pid = fork();
+        if (pid == 0) {
+            /* Child process */
+            free(pids);  /* Child doesn't need this */
+            
+            /* Set up input from previous pipe */
+            if (prev_pipe[0] != STDIN_FILENO) {
+                dup2(prev_pipe[0], STDIN_FILENO);
+                close(prev_pipe[0]);
+            }
+            if (prev_pipe[1] != STDOUT_FILENO)
+                close(prev_pipe[1]);
+            
+            /* Set up output to next pipe */
+            if (current->next) {
+                close(pipe_fds[0]);  /* Close read end */
+                dup2(pipe_fds[1], STDOUT_FILENO);
+                close(pipe_fds[1]);
+            }
+            
+            /* Handle input redirection or here-document */
+            if (current->here_doc) {
+                /* Create temporary pipe for here-document */
+                int here_pipe[2];
+                if (pipe(here_pipe) == 0) {
+                    write(here_pipe[1], current->here_doc, strlen(current->here_doc));
+                    close(here_pipe[1]);
+                    dup2(here_pipe[0], STDIN_FILENO);
+                    close(here_pipe[0]);
+                }
+            } else if (current->input_file) {
+                int fd = open(current->input_file, O_RDONLY);
+                if (fd < 0) {
+                    fprintf(stderr, "ghost-shell: cannot open %s: %s\n",
+                            current->input_file, strerror(errno));
+                    exit(1);
+                }
+                dup2(fd, STDIN_FILENO);
+                close(fd);
+            }
+            
+            /* Handle output redirection */
+            if (current->output_file) {
+                int flags = O_WRONLY | O_CREAT;
+                flags |= current->append_output ? O_APPEND : O_TRUNC;
+                
+                int fd = open(current->output_file, flags, 0644);
+                if (fd < 0) {
+                    fprintf(stderr, "ghost-shell: cannot open %s: %s\n",
+                            current->output_file, strerror(errno));
+                    exit(1);
+                }
+                dup2(fd, STDOUT_FILENO);
+                close(fd);
+            }
+            
+            /* Execute the command */
+            if (execvp(current->name, current->args) < 0) {
+                fprintf(stderr, "ghost-shell: %s: command not found\n", current->name);
+                exit(127);
+            }
+            exit(1);  /* Should never reach here */
+        } else if (pid < 0) {
+            perror("ghost-shell: fork failed");
+            free(pids);
+            return 1;
+        }
+        
+        /* Parent process */
+        pids[cmd_index++] = pid;
+        
+        /* Close previous pipe fds */
+        if (prev_pipe[0] != STDIN_FILENO)
+            close(prev_pipe[0]);
+        if (prev_pipe[1] != STDOUT_FILENO)
+            close(prev_pipe[1]);
+        
+        /* Set up for next command */
+        if (current->next) {
+            prev_pipe[0] = pipe_fds[0];
+            prev_pipe[1] = pipe_fds[1];
+        }
+        
+        current = current->next;
     }
     
-    return 0;
+    /* Parent waits for all processes unless in background */
+    if (!cmd->background) {
+        for (int i = 0; i < pid_count; i++) {
+            waitpid(pids[i], &status, 0);
+        }
+        
+        /* Return the status of the last command in the pipeline */
+        if (WIFSIGNALED(status)) {
+            fprintf(stderr, "ghost-shell: terminated by signal %d\n", WTERMSIG(status));
+            free(pids);
+            return 128 + WTERMSIG(status);
+        }
+    }
+    
+    free(pids);
+    return WEXITSTATUS(status);
 }
 
 void free_command(Command *cmd) {
     if (!cmd) return;
     
+    /* Free the next command in the pipeline first */
+    if (cmd->next) {
+        free_command(cmd->next);
+    }
+    
     if (cmd->name) free(cmd->name);
     if (cmd->input_file) free(cmd->input_file);
     if (cmd->output_file) free(cmd->output_file);
+    if (cmd->here_doc) free(cmd->here_doc);
     
     if (cmd->args) {
         for (int i = 0; i < cmd->arg_count; i++) {
-            free(cmd->args[i]);
+            if (cmd->args[i]) free(cmd->args[i]);
         }
         free(cmd->args);
     }
@@ -309,7 +458,7 @@ char **split_line(const char *line, int *count) {
                 token[token_len] = '\0';
                 
                 /* Resize token array if needed */
-                if (*count >= max_tokens) {
+                if ((size_t)*count >= max_tokens) {
                     max_tokens *= 2;
                     char **new_tokens = realloc(tokens, max_tokens * sizeof(char*));
                     if (!new_tokens) {
@@ -349,8 +498,8 @@ char **split_line(const char *line, int *count) {
         token[token_len] = '\0';
         
         /* Resize token array if needed */
-        if (*count >= max_tokens) {
-            max_tokens++;
+        if ((size_t)*count >= max_tokens) {
+            max_tokens *= 2;
             char **new_tokens = realloc(tokens, max_tokens * sizeof(char*));
             if (!new_tokens) {
                 free(token);

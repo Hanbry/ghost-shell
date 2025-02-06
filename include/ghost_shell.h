@@ -24,13 +24,16 @@ extern History *hist;
 extern HistEvent ev;
 
 /* Command structure */
-typedef struct {
+typedef struct Command {
     char *name;           /* Command name */
     char **args;         /* Command arguments */
     int arg_count;       /* Number of arguments */
     char *input_file;    /* Input redirection file */
     char *output_file;   /* Output redirection file */
+    int append_output;   /* Whether to append to output file */
+    char *here_doc;      /* Here document content */
     int background;      /* Run in background flag */
+    struct Command *next;  /* Next command in pipeline */
 } Command;
 
 /* Shell context structure */
@@ -40,6 +43,7 @@ typedef struct ShellContext {
     int last_status;      /* Last command exit status */
     char *history_file;   /* Path to history file */
     struct GhostAIContext *ai_ctx; /* Ghost AI context */
+    char *last_prompt;    /* Last user prompt for AI analysis */
 } ShellContext;
 
 /* Include ghost_ai.h after ShellContext is defined */

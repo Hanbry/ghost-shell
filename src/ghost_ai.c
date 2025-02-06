@@ -128,9 +128,11 @@ GhostAIContext *ghost_ai_init(void) {
         "When the user asks you something, respond with one or more shell commands "
         "that will help answer their question or accomplish their task. "
         "Provide only the commands, one per line, without any additional explanation or formatting. "
-        "If a task involes multiple steps, use shell redirection or piping to or other tools to combine them. "
+        "If a task involves multiple steps, use shell redirection or piping to combine them. "
         "If a task involves multiple commands combine them into one line. "
-        "Use only standard Unix commands and tools that are likely to be available. ";
+        "Use only standard Unix commands and tools that are likely to be available. "
+        "When analyzing command output, if successful respond with only 'SUCCESS' (not as a command). "
+        "If not successful, explain what needs to be done differently.";
     
     ctx->system_prompt = strdup(system_prompt);
     if (!ctx->system_prompt) {
@@ -340,21 +342,29 @@ int ghost_ai_process(const char *prompt, GhostAIContext *ai_ctx, struct ShellCon
             }
             *w = '\0';
             
-            /* Parse and execute commands */
-            int cmd_count;
-            char **commands = ghost_ai_parse_commands(content, &cmd_count);
+            /* Store the response for analysis */
+            ai_ctx->last_response = strdup(content);
             
-            if (commands && cmd_count > 0) {
-                ghost_ai_execute_commands(commands, cmd_count, shell_ctx);
+            /* Only parse and execute commands if in ghost mode */
+            if (ai_ctx->in_ghost_mode) {
+                /* Parse and execute commands */
+                int cmd_count;
+                char **commands = ghost_ai_parse_commands(content, &cmd_count);
                 
-                /* Clean up commands */
-                for (int i = 0; i < cmd_count; i++) {
-                    if (commands[i]) {
-                        free(commands[i]);
+                if (commands && cmd_count > 0) {
+                    ghost_ai_execute_commands(commands, cmd_count, shell_ctx);
+                    
+                    /* Clean up commands */
+                    for (int i = 0; i < cmd_count; i++) {
+                        if (commands[i]) {
+                            free(commands[i]);
+                        }
                     }
+                    free(commands);
+                    result = 0;  /* Success */
                 }
-                free(commands);
-                result = 0;  /* Success */
+            } else {
+                result = 0;  /* Success, but don't execute commands */
             }
             
             free(content);
@@ -551,45 +561,149 @@ void ghost_ai_display_command(const char *command, char *modified_command, size_
     fflush(stdout);
 }
 
+char *ghost_ai_capture_command_output(const char *command, struct ShellContext *shell_ctx) {
+    FILE *fp;
+    char *output = NULL;
+    size_t output_size = 0;
+    size_t total_size = 0;
+    char buffer[4096];
+
+    /* Open the command for reading */
+    fp = popen(command, "r");
+    if (fp == NULL) {
+        return NULL;
+    }
+
+    /* Read the command output */
+    while (!feof(fp)) {
+        size_t bytes_read = fread(buffer, 1, sizeof(buffer) - 1, fp);
+        if (bytes_read > 0) {
+            char *new_output = realloc(output, total_size + bytes_read + 1);
+            if (new_output == NULL) {
+                free(output);
+                pclose(fp);
+                return NULL;
+            }
+            output = new_output;
+            memcpy(output + total_size, buffer, bytes_read);
+            total_size += bytes_read;
+            output[total_size] = '\0';
+        }
+    }
+
+    pclose(fp);
+    return output;
+}
+
+int ghost_ai_analyze_output(const char *original_prompt, const char *command_output, GhostAIContext *ai_ctx, struct ShellContext *shell_ctx) {
+    char *analysis_prompt = NULL;
+    size_t prompt_size;
+    int result;
+
+    /* Create analysis prompt */
+    prompt_size = strlen(original_prompt) + strlen(command_output) + 200;
+    analysis_prompt = malloc(prompt_size);
+    if (!analysis_prompt) {
+        return 1;
+    }
+
+    snprintf(analysis_prompt, prompt_size,
+        "The user requested: '%s'\n"
+        "The command output was:\n%s\n"
+        "Please analyze if this output satisfies the user's request. "
+        "If it is correct, respond with only 'SUCCESS' (this will not be shown to the user). "
+        "If it is not correct, explain what should be done differently.",
+        original_prompt, command_output);
+
+    /* Store the current last_response */
+    char *prev_response = ai_ctx->last_response;
+    ai_ctx->last_response = NULL;
+
+    /* Process the analysis request but don't show the response to the user */
+    ai_ctx->in_ghost_mode = 0;  /* Temporarily disable response output */
+    result = ghost_ai_process(analysis_prompt, ai_ctx, shell_ctx);
+    ai_ctx->in_ghost_mode = 1;  /* Re-enable response output */
+    
+    /* If we got a response and it indicates the command wasn't successful */
+    if (ai_ctx->last_response) {
+        /* Check if the response indicates success */
+        if (strstr(ai_ctx->last_response, "SUCCESS") != NULL) {
+            /* Command was successful, no need for follow-up */
+            result = 0;
+        } else {
+            /* Command wasn't successful, try alternative approach */
+            result = ghost_ai_handle_followup(original_prompt, command_output, 
+                                            ai_ctx->last_response, ai_ctx, shell_ctx);
+        }
+    }
+
+    /* Restore the previous response */
+    free(ai_ctx->last_response);
+    ai_ctx->last_response = prev_response;
+    
+    free(analysis_prompt);
+    return result;
+}
+
+int ghost_ai_handle_followup(const char *original_prompt, const char *command_output, const char *analysis_response, GhostAIContext *ai_ctx, struct ShellContext *shell_ctx) {
+    /* Don't follow up if the response indicates success */
+    if (strstr(analysis_response, "SUCCESS") != NULL) {
+        return 0;
+    }
+
+    /* Check if the analysis response contains suggestions for different commands */
+    if (strstr(analysis_response, "suggest") || strstr(analysis_response, "should") || 
+        strstr(analysis_response, "could") || strstr(analysis_response, "would") ||
+        strstr(analysis_response, "try") || strstr(analysis_response, "instead")) {
+        
+        /* Create a follow-up prompt */
+        char *followup_prompt = malloc(strlen(original_prompt) + strlen(command_output) + 200);
+        if (!followup_prompt) {
+            return 1;
+        }
+
+        snprintf(followup_prompt, strlen(original_prompt) + strlen(command_output) + 200,
+            "The previous command did not fully satisfy the request: '%s'\n"
+            "Please provide the correct command(s) to achieve this goal.\n"
+            "Provide ONLY the commands to run, no explanation.",
+            original_prompt);
+
+        /* Process the follow-up request */
+        printf("\nTrying alternative approach...\n");
+        int result = ghost_ai_process(followup_prompt, ai_ctx, shell_ctx);
+        
+        free(followup_prompt);
+        return result;
+    }
+    
+    return 0;  /* No follow-up needed */
+}
+
 void ghost_ai_execute_commands(char **commands, int cmd_count, struct ShellContext *shell_ctx) {
     if (!commands || !shell_ctx || cmd_count <= 0) {
         return;
     }
-    
-    Command *cmd = NULL;
-    char modified_command[4096];
-    
-    for (int i = 0; i < cmd_count && commands[i]; i++) {
-        if (!commands[i]) continue;
-        
-        /* Display command with prompt and allow editing */
+
+    for (int i = 0; i < cmd_count; i++) {
+        char modified_command[4096];
+        char *output;
+
+        /* Display the command with typing effect */
         ghost_ai_display_command(commands[i], modified_command, sizeof(modified_command));
         
-        /* Add modified command to history */
-        add_history(modified_command);
-        if (hist && shell_ctx->history_file) {
-            history(hist, &ev, H_ENTER, modified_command);
-            history(hist, &ev, H_SAVE, shell_ctx->history_file);
-        }
-        
-        /* Parse command */
-        cmd = parse_command(modified_command);
-        if (!cmd) {
-            continue;
-        }
-        
-        /* Execute command */
-        if (cmd->name) {
-            shell_ctx->last_status = execute_command(cmd, shell_ctx);
-        }
-        
-        /* Clean up */
-        free_command(cmd);
-        cmd = NULL;
-        
-        /* Add a newline after command output if there are more commands */
-        if (i < cmd_count - 1) {
-            printf("\n");
+        /* Execute the command and capture output */
+        output = ghost_ai_capture_command_output(commands[i], shell_ctx);
+        if (output) {
+            /* Print the output */
+            printf("%s", output);
+            
+            /* Analyze the output with AI and stop if successful */
+            if (ghost_ai_analyze_output(shell_ctx->last_prompt, output, shell_ctx->ai_ctx, shell_ctx) == 0) {
+                free(output);
+                break;  /* Stop executing commands if we got a successful result */
+            }
+            
+            free(output);
         }
     }
 }

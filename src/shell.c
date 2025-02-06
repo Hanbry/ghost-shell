@@ -32,6 +32,7 @@ void shell_init(ShellContext *ctx) {
     ctx->exit_flag = 0;
     ctx->last_status = 0;
     ctx->ai_ctx = NULL;
+    ctx->last_prompt = NULL;
 
     if (!ctx->current_dir) {
         print_error("Failed to get current working directory");
@@ -134,6 +135,11 @@ void shell_cleanup(ShellContext *ctx) {
     if (ctx->current_dir) {
         free(ctx->current_dir);
         ctx->current_dir = NULL;
+    }
+
+    if (ctx->last_prompt) {
+        free(ctx->last_prompt);
+        ctx->last_prompt = NULL;
     }
 
     /* Clean up completion system */
