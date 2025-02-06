@@ -226,15 +226,16 @@ ghost_ai_context *ghost_ai_init(void) {
     
     /* Set up system prompt */
     system_prompt = 
-        "You are a helpful AI assistant in a shell environment. "
-        "When the user asks you something, respond with one or more shell commands "
-        "that will help answer their question or accomplish their task. "
-        "Provide only the commands, one per line, without any additional explanation or formatting. "
-        "If a task involves multiple steps, use shell redirection or piping to combine them. "
-        "If a task involves multiple commands combine them into one line. "
-        "Use only standard Unix commands and tools that are likely to be available. "
-        "When analyzing command output, if successful respond with only 'SUCCESS' (not as a command). "
-        "If not successful, explain what needs to be done differently.";
+        "You are a shell command executor. "
+        "You MUST ONLY output raw shell commands, one per line. "
+        "NEVER use markdown formatting, code blocks, or ``` markers. "
+        "NEVER include explanations or comments. "
+        "For creating files, use echo with proper shell quoting: "
+        "echo 'content' > file or echo 'content' >> file. "
+        "For multiline files, use cat << 'EOF' > file. "
+        "Every line you output will be executed directly in the shell. "
+        "If a task needs multiple steps, use shell operators (;, &&, |). "
+        "When analyzing output, only respond with 'SUCCESS' if the task is complete.";
     
     ctx->system_prompt = strdup(system_prompt);
     if (!ctx->system_prompt) {
@@ -625,7 +626,6 @@ char **ghost_ai_parse_commands(const char *ai_response, size_t *cmd_count) {
     commands[i] = NULL;  /* NULL terminate the array */
     
     free(response_copy);
-    
     return commands;
 }
 
@@ -766,7 +766,7 @@ int ghost_ai_analyze_output(const char *original_prompt, const char *command_out
     int result;
 
     /* Create analysis prompt */
-    prompt_size = strlen(original_prompt) + strlen(command_output) + 200;
+    prompt_size = strlen(original_prompt) + strlen(command_output) + 300;
     analysis_prompt = malloc(prompt_size);
     if (!analysis_prompt) {
         return 1;
@@ -776,8 +776,10 @@ int ghost_ai_analyze_output(const char *original_prompt, const char *command_out
         "The user requested: '%s'\n"
         "The command output was:\n%s\n"
         "Please analyze if this output satisfies the user's request. "
-        "If it is correct, respond with only 'SUCCESS' (this will not be shown to the user). "
-        "If it is not correct, explain what should be done differently.",
+        "If it is correct and complete, respond with only 'SUCCESS'. "
+        "If it is not correct or incomplete, explain what needs to be done to fulfill the request. "
+        "Remember: your response will be used to generate shell commands, "
+        "so be specific about what commands need to be run.",
         original_prompt, command_output);
 
     /* Store the current last_response */
@@ -816,32 +818,29 @@ int ghost_ai_handle_followup(const char *original_prompt, const char *command_ou
         return 0;
     }
 
-    /* Check if the analysis response contains suggestions for different commands */
-    if (strstr(analysis_response, "suggest") || strstr(analysis_response, "should") || 
-        strstr(analysis_response, "could") || strstr(analysis_response, "would") ||
-        strstr(analysis_response, "try") || strstr(analysis_response, "instead")) {
-        
-        /* Create a follow-up prompt */
-        char *followup_prompt = malloc(strlen(original_prompt) + strlen(command_output) + 200);
-        if (!followup_prompt) {
-            return 1;
-        }
-
-        snprintf(followup_prompt, strlen(original_prompt) + strlen(command_output) + 200,
-            "The previous command did not fully satisfy the request: '%s'\n"
-            "Please provide the correct command(s) to achieve this goal.\n"
-            "Provide ONLY the commands to run, no explanation.",
-            original_prompt);
-
-        /* Process the follow-up request */
-        printf("\nTrying alternative approach...\n");
-        int result = ghost_ai_process(followup_prompt, ai_ctx, shell_ctx);
-        
-        free(followup_prompt);
-        return result;
+    /* Create a follow-up prompt */
+    size_t prompt_size = strlen(original_prompt) + strlen(command_output) + strlen(analysis_response) + 300;
+    char *followup_prompt = malloc(prompt_size);
+    if (!followup_prompt) {
+        return 1;
     }
+
+    snprintf(followup_prompt, prompt_size,
+        "The user requested: '%s'\n"
+        "The previous attempt resulted in:\n%s\n"
+        "Your analysis indicated the following issues:\n%s\n"
+        "Please provide the commands needed to fulfill the user's request correctly.\n"
+        "Remember: ONLY provide valid shell commands, one per line.\n"
+        "For creating/modifying files, use echo with proper quoting and redirection.\n"
+        "For multiline files, use a heredoc or multiple echo commands with >>.\n"
+        "Do not include any explanations or markdown - only executable commands.",
+        original_prompt, command_output, analysis_response);
+
+    /* Process the follow-up request */
+    int result = ghost_ai_process(followup_prompt, ai_ctx, shell_ctx);
     
-    return 0;  /* No follow-up needed */
+    free(followup_prompt);
+    return result;
 }
 
 void ghost_ai_execute_commands(char **commands, size_t cmd_count, struct shell_context *shell_ctx) {
