@@ -121,7 +121,7 @@ int builtin_call(ghost_command *cmd, shell_context *ctx) {
     
     /* Combine all arguments into a single prompt */
     size_t total_len = 0;
-    for (int i = 1; i < cmd->arg_count; i++) {
+    for (size_t i = 1; i < cmd->arg_count; i++) {
         total_len += strlen(cmd->args[i]) + 1;  /* +1 for space */
     }
     
@@ -132,7 +132,7 @@ int builtin_call(ghost_command *cmd, shell_context *ctx) {
     }
     
     prompt[0] = '\0';
-    for (int i = 1; i < cmd->arg_count; i++) {
+    for (size_t i = 1; i < cmd->arg_count; i++) {
         if (i > 1) strcat(prompt, " ");
         strcat(prompt, cmd->args[i]);
     }
@@ -153,39 +153,16 @@ int builtin_call(ghost_command *cmd, shell_context *ctx) {
 int builtin_export(ghost_command *cmd, shell_context *ctx) {
     (void)ctx;  /* Unused parameter */
     
-    if (cmd->arg_count == 1) {
-        /* List all environment variables */
-        extern char **environ;
-        for (char **env = environ; *env != NULL; env++) {
-            printf("%s\n", *env);
-        }
-        return 0;
+    if (cmd->arg_count < 2) {
+        print_error("export: missing argument");
+        return 1;
     }
     
-    /* Process each NAME=VALUE argument */
-    for (int i = 1; i < cmd->arg_count; i++) {
-        char *arg = strdup(cmd->args[i]);
-        char *equals = strchr(arg, '=');
-        
-        if (!equals) {
-            /* Just a NAME - print its value */
-            const char *value = getenv(arg);
-            if (value) {
-                printf("%s=%s\n", arg, value);
-            }
-        } else {
-            /* NAME=VALUE - set it */
-            *equals = '\0';  /* Split into name and value */
-            if (setenv(arg, equals + 1, 1) != 0) {
-                char error_msg[256];
-                snprintf(error_msg, sizeof(error_msg), 
-                        "export: %s: %s", arg, strerror(errno));
-                print_error(error_msg);
-                free(arg);
-                return 1;
-            }
+    for (size_t i = 1; i < cmd->arg_count; i++) {
+        if (putenv(strdup(cmd->args[i])) != 0) {
+            print_error("export: failed to set environment variable");
+            return 1;
         }
-        free(arg);
     }
     
     return 0;

@@ -504,14 +504,14 @@ int ghost_ai_process(const char *prompt, ghost_ai_context *ai_ctx, struct shell_
             /* Only parse and execute commands if in ghost mode */
             if (ai_ctx->is_ghost_mode) {
                 /* Parse and execute commands */
-                int cmd_count;
+                size_t cmd_count;
                 char **commands = ghost_ai_parse_commands(content, &cmd_count);
                 
                 if (commands && cmd_count > 0) {
                     ghost_ai_execute_commands(commands, cmd_count, shell_ctx);
                     
                     /* Clean up commands */
-                    for (int i = 0; i < cmd_count; i++) {
+                    for (size_t i = 0; i < cmd_count; i++) {
                         if (commands[i]) {
                             free(commands[i]);
                         }
@@ -542,7 +542,7 @@ cleanup:
     return result;
 }
 
-char **ghost_ai_parse_commands(const char *ai_response, int *cmd_count) {
+char **ghost_ai_parse_commands(const char *ai_response, size_t *cmd_count) {
     if (!ai_response || !cmd_count) {
         return NULL;
     }
@@ -593,7 +593,7 @@ char **ghost_ai_parse_commands(const char *ai_response, int *cmd_count) {
     /* Parse commands */
     char *saveptr = NULL;
     char *line = strtok_r(response_copy, "\n", &saveptr);
-    int i = 0;
+    size_t i = 0;
     
     while (line && i < *cmd_count) {
         /* Skip empty lines and trim whitespace */
@@ -608,7 +608,7 @@ char **ghost_ai_parse_commands(const char *ai_response, int *cmd_count) {
                 commands[i] = strdup(line);
                 if (!commands[i]) {
                     /* Clean up */
-                    for (int j = 0; j < i; j++) {
+                    for (size_t j = 0; j < i; j++) {
                         free(commands[j]);
                     }
                     free(commands);
@@ -721,10 +721,9 @@ void ghost_ai_display_command(const char *command, char *modified_command, size_
     fflush(stdout);
 }
 
-char *ghost_ai_capture_command_output(const char *command, ghost_ai_context *ai_ctx, struct shell_context *shell_ctx) {
+char *ghost_ai_capture_command_output(const char *command, ghost_ai_context *ai_ctx) {
     FILE *fp;
     char *output = NULL;
-    size_t output_size = 0;
     size_t total_size = 0;
     char buffer[4096];
 
@@ -845,12 +844,12 @@ int ghost_ai_handle_followup(const char *original_prompt, const char *command_ou
     return 0;  /* No follow-up needed */
 }
 
-void ghost_ai_execute_commands(char **commands, int cmd_count, struct shell_context *shell_ctx) {
-    if (!commands || !shell_ctx || cmd_count <= 0) {
+void ghost_ai_execute_commands(char **commands, size_t cmd_count, struct shell_context *shell_ctx) {
+    if (!commands || !shell_ctx || cmd_count == 0) {
         return;
     }
 
-    for (int i = 0; i < cmd_count; i++) {
+    for (size_t i = 0; i < cmd_count; i++) {
         char modified_command[4096];
         char *output;
 
@@ -858,7 +857,7 @@ void ghost_ai_execute_commands(char **commands, int cmd_count, struct shell_cont
         ghost_ai_display_command(commands[i], modified_command, sizeof(modified_command));
         
         /* Execute the command and capture output */
-        output = ghost_ai_capture_command_output(modified_command, shell_ctx->ai_ctx, shell_ctx);
+        output = ghost_ai_capture_command_output(modified_command, shell_ctx->ai_ctx);
         if (output) {
             /* Print the output */
             printf("%s", output);

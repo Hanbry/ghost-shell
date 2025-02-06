@@ -179,7 +179,7 @@ static ghost_command *parse_single_command(char *input, char **next_cmd) {
     }
     
     /* Parse for redirections and background execution */
-    for (int i = 0; i < cmd->arg_count; i++) {
+    for (size_t i = 0; i < cmd->arg_count; i++) {
         if (strcmp(cmd->args[i], "<<") == 0 && i + 1 < cmd->arg_count) {
             /* Here document */
             cmd->here_doc = read_here_doc(cmd->args[i + 1]);
@@ -226,18 +226,6 @@ static ghost_command *parse_single_command(char *input, char **next_cmd) {
     cmd->args[cmd->arg_count] = NULL;
     
     return cmd;
-}
-
-/* Helper function to set up pipes */
-static void setup_pipes(int in_fd, int out_fd) {
-    if (in_fd != STDIN_FILENO) {
-        dup2(in_fd, STDIN_FILENO);
-        close(in_fd);
-    }
-    if (out_fd != STDOUT_FILENO) {
-        dup2(out_fd, STDOUT_FILENO);
-        close(out_fd);
-    }
 }
 
 int execute_command(ghost_command *cmd, shell_context *ctx) {
@@ -386,49 +374,44 @@ int execute_command(ghost_command *cmd, shell_context *ctx) {
 void free_command(ghost_command *cmd) {
     if (!cmd) return;
     
-    /* Free the next command in the pipeline first */
-    if (cmd->next) {
-        free_command(cmd->next);
-    }
-    
     if (cmd->name) free(cmd->name);
-    if (cmd->input_file) free(cmd->input_file);
-    if (cmd->output_file) free(cmd->output_file);
-    if (cmd->here_doc) free(cmd->here_doc);
-    
     if (cmd->args) {
-        for (int i = 0; i < cmd->arg_count; i++) {
+        for (size_t i = 0; i < cmd->arg_count; i++) {
             if (cmd->args[i]) free(cmd->args[i]);
         }
         free(cmd->args);
     }
-    
+    if (cmd->input_file) free(cmd->input_file);
+    if (cmd->output_file) free(cmd->output_file);
+    if (cmd->here_doc) free(cmd->here_doc);
+    if (cmd->next) free_command(cmd->next);
     free(cmd);
 }
 
-char **split_line(const char *line, int *count) {
-    char **tokens = NULL;
+/* Helper function to split a line into tokens */
+char **split_line(const char *line, size_t *count) {
+    if (!line || !count) return NULL;
     *count = 0;
-    size_t max_tokens = 10;  /* Initial capacity */
-    size_t token_len = 0;
-    char *token = NULL;
-    int in_quotes = 0;
-    int escaped = 0;
     
-    /* Allocate initial token array */
-    tokens = calloc(max_tokens, sizeof(char*));
+    /* Initial allocation */
+    size_t max_tokens = 10;
+    char **tokens = malloc(max_tokens * sizeof(char*));
     if (!tokens) {
         print_error("Memory allocation failed");
         return NULL;
     }
     
     /* Allocate buffer for current token */
-    token = malloc(GHOST_MAX_INPUT_SIZE);
+    char *token = malloc(GHOST_MAX_INPUT_SIZE);
     if (!token) {
         free(tokens);
         print_error("Memory allocation failed");
         return NULL;
     }
+    
+    size_t token_len = 0;
+    int in_quotes = 0;
+    int escaped = 0;
     
     /* Parse input character by character */
     for (size_t i = 0; line[i] != '\0'; i++) {
@@ -457,12 +440,12 @@ char **split_line(const char *line, int *count) {
                 token[token_len] = '\0';
                 
                 /* Resize token array if needed */
-                if ((size_t)*count >= max_tokens) {
+                if (*count >= max_tokens) {
                     max_tokens *= 2;
                     char **new_tokens = realloc(tokens, max_tokens * sizeof(char*));
                     if (!new_tokens) {
                         free(token);
-                        for (int j = 0; j < *count; j++) {
+                        for (size_t j = 0; j < *count; j++) {
                             free(tokens[j]);
                         }
                         free(tokens);
@@ -476,7 +459,7 @@ char **split_line(const char *line, int *count) {
                 tokens[*count] = strdup(token);
                 if (!tokens[*count]) {
                     free(token);
-                    for (int j = 0; j < *count; j++) {
+                    for (size_t j = 0; j < *count; j++) {
                         free(tokens[j]);
                     }
                     free(tokens);
@@ -497,12 +480,12 @@ char **split_line(const char *line, int *count) {
         token[token_len] = '\0';
         
         /* Resize token array if needed */
-        if ((size_t)*count >= max_tokens) {
+        if (*count >= max_tokens) {
             max_tokens *= 2;
             char **new_tokens = realloc(tokens, max_tokens * sizeof(char*));
             if (!new_tokens) {
                 free(token);
-                for (int j = 0; j < *count; j++) {
+                for (size_t j = 0; j < *count; j++) {
                     free(tokens[j]);
                 }
                 free(tokens);
@@ -516,7 +499,7 @@ char **split_line(const char *line, int *count) {
         tokens[*count] = strdup(token);
         if (!tokens[*count]) {
             free(token);
-            for (int j = 0; j < *count; j++) {
+            for (size_t j = 0; j < *count; j++) {
                 free(tokens[j]);
             }
             free(tokens);
@@ -532,7 +515,7 @@ char **split_line(const char *line, int *count) {
         char **new_tokens = realloc(tokens, max_tokens * sizeof(char*));
         if (!new_tokens) {
             free(token);
-            for (int j = 0; j < *count; j++) {
+            for (size_t j = 0; j < *count; j++) {
                 free(tokens[j]);
             }
             free(tokens);

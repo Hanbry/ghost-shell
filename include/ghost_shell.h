@@ -26,7 +26,7 @@ extern HistEvent ev;
 typedef struct ghost_command {
     char *name;           /* Command name */
     char **args;         /* Command arguments */
-    int arg_count;       /* Number of arguments */
+    size_t arg_count;    /* Number of arguments */
     char *input_file;    /* Input redirection file */
     char *output_file;   /* Output redirection file */
     int append_output;   /* Whether to append to output file */
@@ -68,7 +68,7 @@ int builtin_export(ghost_command *cmd, shell_context *ctx);
 
 /* Utility functions */
 char *read_line(void);
-char **split_line(const char *line, int *count);
+char **split_line(const char *line, size_t *count);
 void print_error(const char *message);
 
 /* History functions */
