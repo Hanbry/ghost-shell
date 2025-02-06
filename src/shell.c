@@ -12,11 +12,11 @@ History *hist = NULL;  /* Non-static to match extern */
 HistEvent ev;          /* Non-static to match extern */
 
 /* Forward declarations */
-static char *get_prompt(EditLine *e);
+static char *get_prompt(EditLine *edit_line);
 
 /* Prompt function for libedit */
-static char *get_prompt(EditLine *e) {
-    (void)e;
+static char *get_prompt(EditLine *edit_line) {
+    (void)edit_line;
     static char prompt[1024];
     const char *username = getenv("USER");
     if (!username) username = "user";
@@ -27,7 +27,7 @@ static char *get_prompt(EditLine *e) {
     return strdup(prompt);
 }
 
-void shell_init(ShellContext *ctx) {
+void shell_init(shell_context *ctx) {
     ctx->current_dir = getcwd(NULL, 0);
     ctx->exit_flag = 0;
     ctx->last_status = 0;
@@ -66,7 +66,7 @@ void shell_init(ShellContext *ctx) {
         el_set(el, EL_HIST, history, hist);
         
         /* Set up completion */
-        el_set(el, EL_ADDFN, "complete", "Complete command", complete);
+        el_set(el, EL_ADDFN, "complete", "Complete command", ghost_complete);
         el_set(el, EL_BIND, "^I", "complete", NULL);
         
         /* Load other default bindings */
@@ -74,10 +74,10 @@ void shell_init(ShellContext *ctx) {
     }
 }
 
-void shell_loop(ShellContext *ctx) {
+void shell_loop(shell_context *ctx) {
     const char *line;
     int count;
-    Command *cmd;
+    ghost_command *cmd;
 
     while (!ctx->exit_flag) {
         /* Read line */
@@ -113,7 +113,7 @@ void shell_loop(ShellContext *ctx) {
     }
 }
 
-void shell_cleanup(ShellContext *ctx) {
+void shell_cleanup(shell_context *ctx) {
     if (el) {
         el_end(el);
         el = NULL;

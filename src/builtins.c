@@ -11,75 +11,47 @@
 extern History *hist;
 extern HistEvent ev;
 
-int builtin_cd(Command *cmd, ShellContext *ctx) {
-    char *new_dir;
-    
-    /* If no argument is provided, change to HOME directory */
-    if (cmd->arg_count == 1) {
-        new_dir = getenv("HOME");
-        if (!new_dir) {
-            fprintf(stderr, "ghost-shell: cd: HOME not set\n");
-            return 1;
-        }
-    } else {
-        new_dir = cmd->args[1];
-    }
-    
-    /* Check if directory exists */
-    if (access(new_dir, F_OK) != 0) {
-        fprintf(stderr, "ghost-shell: cd: no such file or directory: %s\n", new_dir);
+int builtin_cd(ghost_command *cmd, shell_context *ctx) {
+    const char *dir = cmd->arg_count > 1 ? cmd->args[1] : getenv("HOME");
+    if (!dir) {
+        print_error("HOME environment variable not set");
         return 1;
     }
     
-    /* Check if it's a directory */
-    struct stat st;
-    if (stat(new_dir, &st) == 0 && !S_ISDIR(st.st_mode)) {
-        fprintf(stderr, "ghost-shell: cd: not a directory: %s\n", new_dir);
+    if (chdir(dir) != 0) {
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "cd: %s: %s", dir, strerror(errno));
+        print_error(error_msg);
         return 1;
     }
     
-    /* Check if we have permission */
-    if (access(new_dir, X_OK) != 0) {
-        fprintf(stderr, "ghost-shell: cd: permission denied: %s\n", new_dir);
-        return 1;
-    }
-    
-    /* Change directory */
-    if (chdir(new_dir) != 0) {
-        fprintf(stderr, "ghost-shell: cd: %s: %s\n", new_dir, strerror(errno));
-        return 1;
-    }
-    
-    /* Update current directory in context */
-    free(ctx->current_dir);
-    ctx->current_dir = getcwd(NULL, 0);
-    if (!ctx->current_dir) {
-        fprintf(stderr, "ghost-shell: cd: failed to get current directory: %s\n", strerror(errno));
-        return 1;
+    /* Update current directory */
+    char *new_dir = getcwd(NULL, 0);
+    if (new_dir) {
+        free(ctx->current_dir);
+        ctx->current_dir = new_dir;
     }
     
     return 0;
 }
 
-int builtin_exit(Command *cmd, ShellContext *ctx) {
+int builtin_exit(ghost_command *cmd, shell_context *ctx) {
     int exit_status = 0;
     
-    /* If an argument is provided, use it as exit status */
     if (cmd->arg_count > 1) {
         char *endptr;
         exit_status = strtol(cmd->args[1], &endptr, 10);
         if (*endptr != '\0') {
-            fprintf(stderr, "ghost-shell: exit: numeric argument required\n");
-            exit_status = 255;
+            print_error("exit: numeric argument required");
+            exit_status = 2;
         }
     }
     
     ctx->exit_flag = 1;
-    ctx->last_status = exit_status;
     return exit_status;
 }
 
-int builtin_help(Command *cmd, ShellContext *ctx) {
+int builtin_help(ghost_command *cmd, shell_context *ctx) {
     (void)cmd;  /* Unused parameter */
     (void)ctx;  /* Unused parameter */
     
@@ -100,7 +72,7 @@ int builtin_help(Command *cmd, ShellContext *ctx) {
     return 0;
 }
 
-int builtin_history(Command *cmd, ShellContext *ctx) {
+int builtin_history(ghost_command *cmd, shell_context *ctx) {
     (void)cmd;  /* Unused parameter */
     (void)ctx;  /* Unused parameter */
     
@@ -132,57 +104,57 @@ int builtin_history(Command *cmd, ShellContext *ctx) {
     return 0;
 }
 
-int builtin_call(Command *cmd, ShellContext *ctx) {
-    if (!cmd || !ctx) {
-        fprintf(stderr, "Usage: call <prompt>\n");
-        return 1;
-    }
-
+int builtin_call(ghost_command *cmd, shell_context *ctx) {
     if (cmd->arg_count < 2) {
-        fprintf(stderr, "Usage: call <prompt>\n");
+        print_error("call: missing prompt argument");
         return 1;
     }
-
-    /* Initialize AI context if not already done */
+    
+    /* Initialize AI context if needed */
     if (!ctx->ai_ctx) {
         ctx->ai_ctx = ghost_ai_init();
         if (!ctx->ai_ctx) {
-            fprintf(stderr, "Failed to initialize AI context\n");
+            print_error("Failed to initialize AI context");
             return 1;
         }
     }
-
+    
     /* Combine all arguments into a single prompt */
-    char prompt[4096] = {0};
+    size_t total_len = 0;
     for (int i = 1; i < cmd->arg_count; i++) {
-        if (!cmd->args[i]) {
-            continue;
-        }
+        total_len += strlen(cmd->args[i]) + 1;  /* +1 for space */
+    }
+    
+    char *prompt = malloc(total_len + 1);  /* +1 for null terminator */
+    if (!prompt) {
+        print_error("Memory allocation failed");
+        return 1;
+    }
+    
+    prompt[0] = '\0';
+    for (int i = 1; i < cmd->arg_count; i++) {
         if (i > 1) strcat(prompt, " ");
         strcat(prompt, cmd->args[i]);
     }
     
-    /* Store the prompt for later analysis */
+    /* Store prompt for analysis */
     free(ctx->last_prompt);
     ctx->last_prompt = strdup(prompt);
-    if (!ctx->last_prompt) {
-        fprintf(stderr, "Failed to store prompt\n");
-        return 1;
-    }
     
-    /* Process the prompt */
-    ctx->ai_ctx->in_ghost_mode = 1;
+    /* Process prompt */
+    ctx->ai_ctx->is_ghost_mode = 1;
     int result = ghost_ai_process(prompt, ctx->ai_ctx, ctx);
-    ctx->ai_ctx->in_ghost_mode = 0;
+    ctx->ai_ctx->is_ghost_mode = 0;
     
+    free(prompt);
     return result;
 }
 
-int builtin_export(Command *cmd, ShellContext *ctx) {
+int builtin_export(ghost_command *cmd, shell_context *ctx) {
     (void)ctx;  /* Unused parameter */
     
-    if (cmd->arg_count < 2) {
-        /* If no arguments, list all environment variables */
+    if (cmd->arg_count == 1) {
+        /* List all environment variables */
         extern char **environ;
         for (char **env = environ; *env != NULL; env++) {
             printf("%s\n", *env);
@@ -190,31 +162,30 @@ int builtin_export(Command *cmd, ShellContext *ctx) {
         return 0;
     }
     
-    /* Process each argument */
+    /* Process each NAME=VALUE argument */
     for (int i = 1; i < cmd->arg_count; i++) {
-        char *arg = cmd->args[i];
+        char *arg = strdup(cmd->args[i]);
         char *equals = strchr(arg, '=');
         
         if (!equals) {
-            fprintf(stderr, "ghost-shell: export: invalid format: %s\n", arg);
-            fprintf(stderr, "Usage: export NAME=VALUE\n");
-            return 1;
+            /* Just a NAME - print its value */
+            const char *value = getenv(arg);
+            if (value) {
+                printf("%s=%s\n", arg, value);
+            }
+        } else {
+            /* NAME=VALUE - set it */
+            *equals = '\0';  /* Split into name and value */
+            if (setenv(arg, equals + 1, 1) != 0) {
+                char error_msg[256];
+                snprintf(error_msg, sizeof(error_msg), 
+                        "export: %s: %s", arg, strerror(errno));
+                print_error(error_msg);
+                free(arg);
+                return 1;
+            }
         }
-        
-        /* Temporarily split string at '=' */
-        *equals = '\0';
-        const char *name = arg;
-        const char *value = equals + 1;
-        
-        /* Set environment variable */
-        if (setenv(name, value, 1) != 0) {
-            fprintf(stderr, "ghost-shell: export: failed to set %s: %s\n", 
-                    name, strerror(errno));
-            *equals = '=';  /* Restore string */
-            return 1;
-        }
-        
-        *equals = '=';  /* Restore string */
+        free(arg);
     }
     
     return 0;

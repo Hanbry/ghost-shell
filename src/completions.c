@@ -207,22 +207,22 @@ static char **get_directory_entries(const char *dir_path, const char *prefix, si
 }
 
 /* Tab completion function */
-unsigned char complete(EditLine *e, int ch) {
+unsigned char ghost_complete(EditLine *edit_line, int ch) {
     (void)ch;
-    const LineInfo *li = el_line(e);
+    const LineInfo *line_info = el_line(edit_line);
     
     /* Find start of current word */
-    const char *word_start = li->cursor;
-    while (word_start > li->buffer && !isspace(word_start[-1]) && word_start[-1] != '\\') {
+    const char *word_start = line_info->cursor;
+    while (word_start > line_info->buffer && !isspace(word_start[-1]) && word_start[-1] != '\\') {
         word_start--;
     }
     
     /* Get word length */
-    int len = li->cursor - word_start;
+    int len = line_info->cursor - word_start;
     if (len == 0) {
         /* At start of word, just insert a tab if at start of line */
-        if (word_start == li->buffer) {
-            el_insertstr(e, "\t");
+        if (word_start == line_info->buffer) {
+            el_insertstr(edit_line, "\t");
             return CC_REDISPLAY;
         }
         /* Otherwise, do nothing */
@@ -246,12 +246,12 @@ unsigned char complete(EditLine *e, int ch) {
     word[j] = '\0';
     
     /* Determine completion type */
-    int completing_command = (word_start == li->buffer);
+    int completing_command = (word_start == line_info->buffer);
     int completing_cd = 0;
     
     /* Check if we're completing after 'cd' */
     if (!completing_command) {
-        const char *cmd_start = li->buffer;
+        const char *cmd_start = line_info->buffer;
         while (isspace(*cmd_start)) cmd_start++;
         completing_cd = (strncmp(cmd_start, "cd", 2) == 0 && 
                        (isspace(cmd_start[2]) || cmd_start[2] == '\0'));
@@ -324,7 +324,7 @@ unsigned char complete(EditLine *e, int ch) {
     if (common_prefix[0]) {
         /* Delete current word */
         while (len > 0) {
-            el_deletestr(e, 1);
+            el_deletestr(edit_line, 1);
             len--;
         }
         
@@ -341,16 +341,16 @@ unsigned char complete(EditLine *e, int ch) {
                 } else {
                     sprintf(completion, "%s/%s", dir_part, common_prefix);
                 }
-                el_insertstr(e, completion);
+                el_insertstr(edit_line, completion);
                 free(completion);
             }
         } else {
-            el_insertstr(e, common_prefix);
+            el_insertstr(edit_line, common_prefix);
         }
         
         /* Add space after unique command completion */
         if (num_matches == 1 && completing_command) {
-            el_insertstr(e, " ");
+            el_insertstr(edit_line, " ");
         }
     }
     

@@ -13,8 +13,8 @@
 
 /* Forward declarations of static functions */
 static int is_builtin(const char *cmd);
-static int handle_builtin(Command *cmd, ShellContext *ctx);
-static Command *parse_single_command(char *input, char **next_cmd);
+static int handle_builtin(ghost_command *cmd, shell_context *ctx);
+static ghost_command *parse_single_command(char *input, char **next_cmd);
 static void setup_pipes(int in_fd, int out_fd);
 
 /* Helper function to expand environment variables in a string */
@@ -70,18 +70,18 @@ static char *read_here_doc(const char *delimiter) {
     char *content = malloc(GHOST_MAX_INPUT_SIZE);
     char *line = NULL;
     size_t total_len = 0;
-    EditLine *el = el_init("ghost-shell", stdin, stdout, stderr);
+    EditLine *edit_line = el_init("ghost-shell", stdin, stdout, stderr);
     
-    if (!content || !el) {
+    if (!content || !edit_line) {
         free(content);
-        if (el) el_end(el);
+        if (edit_line) el_end(edit_line);
         return NULL;
     }
     content[0] = '\0';
     
     printf("heredoc> ");
     int count;
-    while ((line = (char *)el_gets(el, &count)) != NULL) {
+    while ((line = (char *)el_gets(edit_line, &count)) != NULL) {
         /* Remove trailing newline */
         if (count > 0) {
             line[count-1] = '\0';
@@ -94,7 +94,7 @@ static char *read_here_doc(const char *delimiter) {
         size_t line_len = strlen(line);
         if (total_len + line_len + 2 >= GHOST_MAX_INPUT_SIZE) {
             fprintf(stderr, "ghost-shell: here-document too large\n");
-            el_end(el);
+            el_end(edit_line);
             free(content);
             return NULL;
         }
@@ -105,19 +105,19 @@ static char *read_here_doc(const char *delimiter) {
         printf("heredoc> ");
     }
     
-    el_end(el);
+    el_end(edit_line);
     return content;
 }
 
-Command *parse_command(const char *input) {
+ghost_command *parse_command(const char *input) {
     char *input_copy = strdup(input);
     char *next_cmd = NULL;
-    Command *first_cmd = NULL;
-    Command *current_cmd = NULL;
+    ghost_command *first_cmd = NULL;
+    ghost_command *current_cmd = NULL;
     char *cmd_str = input_copy;
     
     while (cmd_str && *cmd_str) {
-        Command *cmd = parse_single_command(cmd_str, &next_cmd);
+        ghost_command *cmd = parse_single_command(cmd_str, &next_cmd);
         if (!cmd) {
             if (first_cmd) free_command(first_cmd);
             free(input_copy);
@@ -139,8 +139,8 @@ Command *parse_command(const char *input) {
     return first_cmd;
 }
 
-static Command *parse_single_command(char *input, char **next_cmd) {
-    Command *cmd = calloc(1, sizeof(Command));
+static ghost_command *parse_single_command(char *input, char **next_cmd) {
+    ghost_command *cmd = calloc(1, sizeof(ghost_command));
     char *expanded_input;
     char *pipe_pos;
     
@@ -241,7 +241,7 @@ static void setup_pipes(int in_fd, int out_fd) {
     }
 }
 
-int execute_command(Command *cmd, ShellContext *ctx) {
+int execute_command(ghost_command *cmd, shell_context *ctx) {
     if (!cmd) return 1;
     
     /* Handle built-in commands (only for non-piped commands) */
@@ -251,12 +251,12 @@ int execute_command(Command *cmd, ShellContext *ctx) {
     
     int status = 0;
     int prev_pipe[2] = {STDIN_FILENO, STDOUT_FILENO};
-    Command *current = cmd;
+    ghost_command *current = cmd;
     pid_t *pids = NULL;  /* Array to store all process IDs */
     int pid_count = 0;
     
     /* Count number of commands in pipeline */
-    for (Command *c = cmd; c != NULL; c = c->next) {
+    for (ghost_command *c = cmd; c != NULL; c = c->next) {
         pid_count++;
     }
     
@@ -384,7 +384,7 @@ int execute_command(Command *cmd, ShellContext *ctx) {
     return WEXITSTATUS(status);
 }
 
-void free_command(Command *cmd) {
+void free_command(ghost_command *cmd) {
     if (!cmd) return;
     
     /* Free the next command in the pipeline first */
@@ -557,7 +557,7 @@ static int is_builtin(const char *cmd) {
             strcmp(cmd, "export") == 0);
 }
 
-static int handle_builtin(Command *cmd, ShellContext *ctx) {
+static int handle_builtin(ghost_command *cmd, shell_context *ctx) {
     if (strcmp(cmd->name, "cd") == 0) {
         return builtin_cd(cmd, ctx);
     } else if (strcmp(cmd->name, "exit") == 0) {

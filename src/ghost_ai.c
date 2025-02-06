@@ -66,13 +66,13 @@ static size_t write_callback(void *contents, size_t size, size_t nmemb, void *us
     return realsize;
 }
 
-GhostAIContext *ghost_ai_init(void) {
-    GhostAIContext *ctx = NULL;
+ghost_ai_context *ghost_ai_init(void) {
+    ghost_ai_context *ctx = NULL;
     const char *api_key = NULL;
     const char *system_prompt = NULL;
     
     /* Allocate context */
-    ctx = calloc(1, sizeof(GhostAIContext));
+    ctx = calloc(1, sizeof(ghost_ai_context));
     if (!ctx) {
         return NULL;
     }
@@ -81,7 +81,7 @@ GhostAIContext *ghost_ai_init(void) {
     ctx->api_key = NULL;
     ctx->system_prompt = NULL;
     ctx->last_response = NULL;
-    ctx->in_ghost_mode = 0;
+    ctx->is_ghost_mode = 0;
     
     /* Get API key from environment */
     api_key = getenv("OPENAI_API_KEY");
@@ -143,7 +143,7 @@ GhostAIContext *ghost_ai_init(void) {
     return ctx;
 }
 
-void ghost_ai_cleanup(GhostAIContext *ai_ctx) {
+void ghost_ai_cleanup(ghost_ai_context *ai_ctx) {
     if (!ai_ctx) return;
     
     if (ai_ctx->api_key) {
@@ -164,7 +164,7 @@ void ghost_ai_cleanup(GhostAIContext *ai_ctx) {
     }
     
     /* Clear the entire structure before freeing */
-    memset(ai_ctx, 0, sizeof(GhostAIContext));
+    memset(ai_ctx, 0, sizeof(ghost_ai_context));
     free(ai_ctx);
 }
 
@@ -190,7 +190,7 @@ static char *escape_json_string(const char *str) {
     return result;
 }
 
-int ghost_ai_process(const char *prompt, GhostAIContext *ai_ctx, struct ShellContext *shell_ctx) {
+int ghost_ai_process(const char *prompt, ghost_ai_context *ai_ctx, struct shell_context *shell_ctx) {
     if (!prompt || !ai_ctx || !shell_ctx) {
         return 1;
     }
@@ -346,7 +346,7 @@ int ghost_ai_process(const char *prompt, GhostAIContext *ai_ctx, struct ShellCon
             ai_ctx->last_response = strdup(content);
             
             /* Only parse and execute commands if in ghost mode */
-            if (ai_ctx->in_ghost_mode) {
+            if (ai_ctx->is_ghost_mode) {
                 /* Parse and execute commands */
                 int cmd_count;
                 char **commands = ghost_ai_parse_commands(content, &cmd_count);
@@ -561,7 +561,7 @@ void ghost_ai_display_command(const char *command, char *modified_command, size_
     fflush(stdout);
 }
 
-char *ghost_ai_capture_command_output(const char *command, struct ShellContext *shell_ctx) {
+char *ghost_ai_capture_command_output(const char *command, struct shell_context *shell_ctx) {
     FILE *fp;
     char *output = NULL;
     size_t output_size = 0;
@@ -595,7 +595,7 @@ char *ghost_ai_capture_command_output(const char *command, struct ShellContext *
     return output;
 }
 
-int ghost_ai_analyze_output(const char *original_prompt, const char *command_output, GhostAIContext *ai_ctx, struct ShellContext *shell_ctx) {
+int ghost_ai_analyze_output(const char *original_prompt, const char *command_output, ghost_ai_context *ai_ctx, struct shell_context *shell_ctx) {
     char *analysis_prompt = NULL;
     size_t prompt_size;
     int result;
@@ -620,9 +620,9 @@ int ghost_ai_analyze_output(const char *original_prompt, const char *command_out
     ai_ctx->last_response = NULL;
 
     /* Process the analysis request but don't show the response to the user */
-    ai_ctx->in_ghost_mode = 0;  /* Temporarily disable response output */
+    ai_ctx->is_ghost_mode = 0;  /* Temporarily disable response output */
     result = ghost_ai_process(analysis_prompt, ai_ctx, shell_ctx);
-    ai_ctx->in_ghost_mode = 1;  /* Re-enable response output */
+    ai_ctx->is_ghost_mode = 1;  /* Re-enable response output */
     
     /* If we got a response and it indicates the command wasn't successful */
     if (ai_ctx->last_response) {
@@ -645,7 +645,7 @@ int ghost_ai_analyze_output(const char *original_prompt, const char *command_out
     return result;
 }
 
-int ghost_ai_handle_followup(const char *original_prompt, const char *command_output, const char *analysis_response, GhostAIContext *ai_ctx, struct ShellContext *shell_ctx) {
+int ghost_ai_handle_followup(const char *original_prompt, const char *command_output, const char *analysis_response, ghost_ai_context *ai_ctx, struct shell_context *shell_ctx) {
     /* Don't follow up if the response indicates success */
     if (strstr(analysis_response, "SUCCESS") != NULL) {
         return 0;
@@ -679,7 +679,7 @@ int ghost_ai_handle_followup(const char *original_prompt, const char *command_ou
     return 0;  /* No follow-up needed */
 }
 
-void ghost_ai_execute_commands(char **commands, int cmd_count, struct ShellContext *shell_ctx) {
+void ghost_ai_execute_commands(char **commands, int cmd_count, struct shell_context *shell_ctx) {
     if (!commands || !shell_ctx || cmd_count <= 0) {
         return;
     }

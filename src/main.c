@@ -1,7 +1,7 @@
 #include "ghost_shell.h"
 
 int main(void) {
-    ShellContext ctx;
+    shell_context ctx;
     
     /* Initialize the shell */
     shell_init(&ctx);

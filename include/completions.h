@@ -10,6 +10,6 @@ void completions_init(void);
 void completions_cleanup(void);
 
 /* Tab completion function for libedit */
-unsigned char complete(EditLine *e, int ch);
+unsigned char ghost_complete(EditLine *edit_line, int ch);
 
 #endif /* COMPLETIONS_H */

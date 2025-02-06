@@ -24,7 +24,7 @@ extern History *hist;
 extern HistEvent ev;
 
 /* Command structure */
-typedef struct Command {
+typedef struct ghost_command {
     char *name;           /* Command name */
     char **args;         /* Command arguments */
     int arg_count;       /* Number of arguments */
@@ -33,39 +33,39 @@ typedef struct Command {
     int append_output;   /* Whether to append to output file */
     char *here_doc;      /* Here document content */
     int background;      /* Run in background flag */
-    struct Command *next;  /* Next command in pipeline */
-} Command;
+    struct ghost_command *next;  /* Next command in pipeline */
+} ghost_command;
 
 /* Shell context structure */
-typedef struct ShellContext {
+typedef struct shell_context {
     char *current_dir;    /* Current working directory */
     int exit_flag;        /* Shell exit flag */
     int last_status;      /* Last command exit status */
     char *history_file;   /* Path to history file */
-    struct GhostAIContext *ai_ctx; /* Ghost AI context */
+    struct ghost_ai_context *ai_ctx; /* Ghost AI context */
     char *last_prompt;    /* Last user prompt for AI analysis */
-} ShellContext;
+} shell_context;
 
-/* Include ghost_ai.h after ShellContext is defined */
+/* Include ghost_ai.h after shell_context is defined */
 #include "ghost_ai.h"
 
 /* Core shell functions */
-void shell_init(ShellContext *ctx);
-void shell_loop(ShellContext *ctx);
-void shell_cleanup(ShellContext *ctx);
+void shell_init(shell_context *ctx);
+void shell_loop(shell_context *ctx);
+void shell_cleanup(shell_context *ctx);
 
 /* Command handling */
-Command *parse_command(const char *input);
-int execute_command(Command *cmd, ShellContext *ctx);
-void free_command(Command *cmd);
+ghost_command *parse_command(const char *input);
+int execute_command(ghost_command *cmd, shell_context *ctx);
+void free_command(ghost_command *cmd);
 
 /* Built-in commands */
-int builtin_cd(Command *cmd, ShellContext *ctx);
-int builtin_exit(Command *cmd, ShellContext *ctx);
-int builtin_help(Command *cmd, ShellContext *ctx);
-int builtin_history(Command *cmd, ShellContext *ctx);
-int builtin_call(Command *cmd, ShellContext *ctx);
-int builtin_export(Command *cmd, ShellContext *ctx);
+int builtin_cd(ghost_command *cmd, shell_context *ctx);
+int builtin_exit(ghost_command *cmd, shell_context *ctx);
+int builtin_help(ghost_command *cmd, shell_context *ctx);
+int builtin_history(ghost_command *cmd, shell_context *ctx);
+int builtin_call(ghost_command *cmd, shell_context *ctx);
+int builtin_export(ghost_command *cmd, shell_context *ctx);
 
 /* Utility functions */
 char *read_line(void);
