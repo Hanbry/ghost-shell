@@ -19,12 +19,12 @@ int main(void) {
     printf("       ░  ░  ░  ░    ░ ░        ░           \n");
     printf("\n");
     printf("                Shell v%s\n", GHOST_SHELL_VERSION);
-        printf("\n");
+    printf("\n");
 
     /* Check for OpenAI API key */
     if (getenv("OPENAI_API_KEY") == NULL) {
-        printf(COLOR_RED "Error: OPENAI_API_KEY environment variable is not set.\n");
-        printf("Please set it using: export OPENAI_API_KEY='your-api-key'\n" COLOR_RESET);
+        printf("Error: OPENAI_API_KEY environment variable is not set.\n");
+        printf("Please set it using: export OPENAI_API_KEY='your-api-key'\n");
         printf("\n");
     }
     

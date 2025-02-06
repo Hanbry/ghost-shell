@@ -484,9 +484,12 @@ void ghost_ai_display_command(const char *command, char *modified_command, size_
     /* Clear current line and move cursor to beginning */
     printf("\r\033[K");
     
-    /* Display initial command */
-    printf("%sghost%s@ghsh:~$ %s", COLOR_RED, COLOR_RESET, modified_command);
+    static char prompt[1024];
+    char *path = get_formatted_path();
+    format_shell_prompt(prompt, sizeof(prompt), "ghost", path);
+    printf("%s%s", prompt, modified_command);
     fflush(stdout);
+    free(path);
     
     /* Set up timeout using microsecond precision */
     struct timeval start_tv, current_tv;
@@ -518,16 +521,22 @@ void ghost_ai_display_command(const char *command, char *modified_command, size_
                     if (pos > 0) {
                         pos--;
                         modified_command[pos] = '\0';
-                        printf("\r\033[K%sghost%s@ghsh:~$ %s", 
-                               COLOR_RED, COLOR_RESET, modified_command);
+                        printf("\r\033[K");
+                        path = get_formatted_path();
+                        format_shell_prompt(prompt, sizeof(prompt), "ghost", path);
+                        printf("%s%s", prompt, modified_command);
+                        free(path);
                         fflush(stdout);
                     }
                 }
                 else if (c >= 32 && c <= 126 && pos < modified_size - 1) {
                     modified_command[pos++] = c;
                     modified_command[pos] = '\0';
-                    printf("\r\033[K%sghost%s@ghsh:~$ %s", 
-                           COLOR_RED, COLOR_RESET, modified_command);
+                    printf("\r\033[K");
+                    path = get_formatted_path();
+                    format_shell_prompt(prompt, sizeof(prompt), "ghost", path);
+                    printf("%s%s", prompt, modified_command);
+                    free(path);
                     fflush(stdout);
                 }
             }

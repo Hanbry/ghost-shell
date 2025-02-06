@@ -21,29 +21,9 @@ static char *get_prompt(EditLine *e) {
     const char *username = getenv("USER");
     if (!username) username = "user";
 
-    /* Get current directory */
-    char *cwd = getcwd(NULL, 0);
-    if (!cwd) {
-        snprintf(prompt, sizeof(prompt), "%s@ghsh:???$ ", username);
-        return strdup(prompt);
-    }
-
-    /* Try to replace home directory with ~ */
-    const char *dir = cwd;
-    const char *home = getenv("HOME");
-    if (home && strncmp(cwd, home, strlen(home)) == 0) {
-        if (cwd[strlen(home)] == '\0') {
-            dir = "~";
-        } else if (cwd[strlen(home)] == '/') {
-            static char tilde_path[1024];
-            snprintf(tilde_path, sizeof(tilde_path), "~%s", cwd + strlen(home));
-            dir = tilde_path;
-        }
-    }
-
-    /* Format prompt */
-    snprintf(prompt, sizeof(prompt), "%s@ghsh:%s$ ", username, dir);
-    free(cwd);
+    char *path = get_formatted_path();
+    format_shell_prompt(prompt, sizeof(prompt), username, path);
+    free(path);
     return strdup(prompt);
 }
 
