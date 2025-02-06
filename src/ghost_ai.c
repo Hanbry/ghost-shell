@@ -227,14 +227,13 @@ ghost_ai_context *ghost_ai_init(void) {
     /* Set up system prompt */
     system_prompt = 
         "You are a shell command executor. "
-        "You MUST ONLY output raw shell commands, one per line. "
+        "You MUST ONLY output raw shell commands. "
         "NEVER use markdown formatting, code blocks, or ``` markers. "
         "NEVER include explanations or comments. "
-        "For creating files, use echo with proper shell quoting: "
-        "echo 'content' > file or echo 'content' >> file. "
-        "For multiline files, use cat << 'EOF' > file. "
+        "NEVER return partial commands, they must be complete and executable. "
         "Every line you output will be executed directly in the shell. "
-        "If a task needs multiple steps, use shell operators (;, &&, |). "
+        "When you need to create a file, use echo with proper shell quoting and redirection. "
+        "If a task needs multiple steps, use shell operators (;, &&, |) or execute them one by one. "
         "When analyzing output, only respond with 'SUCCESS' if the task is complete.";
     
     ctx->system_prompt = strdup(system_prompt);
@@ -830,9 +829,9 @@ int ghost_ai_handle_followup(const char *original_prompt, const char *command_ou
         "The previous attempt resulted in:\n%s\n"
         "Your analysis indicated the following issues:\n%s\n"
         "Please provide the commands needed to fulfill the user's request correctly.\n"
-        "Remember: ONLY provide valid shell commands, one per line.\n"
+        "Remember: ONLY provide valid shell commands.\n"
+        "NEVER return partial commands, they must be complete and executable. "
         "For creating/modifying files, use echo with proper quoting and redirection.\n"
-        "For multiline files, use a heredoc or multiple echo commands with >>.\n"
         "Do not include any explanations or markdown - only executable commands.",
         original_prompt, command_output, analysis_response);
 
