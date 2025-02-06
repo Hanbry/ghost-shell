@@ -66,6 +66,101 @@ static size_t write_callback(void *contents, size_t size, size_t nmemb, void *us
     return realsize;
 }
 
+/* Initialize conversation history */
+static conversation_history *init_conversation_history(void) {
+    conversation_history *history = calloc(1, sizeof(conversation_history));
+    if (!history) return NULL;
+    
+    history->head = NULL;
+    history->tail = NULL;
+    history->message_count = 0;
+    
+    return history;
+}
+
+/* Add a message to the conversation history */
+void ghost_ai_add_to_history(ghost_ai_context *ai_ctx, message_type type, const char *content) {
+    if (!ai_ctx || !content || !ai_ctx->history) return;
+    
+    /* Create new message */
+    conversation_message *msg = calloc(1, sizeof(conversation_message));
+    if (!msg) return;
+    
+    /* Copy content with size limit */
+    size_t content_len = strlen(content);
+    if (content_len > MAX_MESSAGE_SIZE) {
+        content_len = MAX_MESSAGE_SIZE;
+    }
+    
+    msg->content = malloc(content_len + 1);
+    if (!msg->content) {
+        free(msg);
+        return;
+    }
+    
+    strncpy(msg->content, content, content_len);
+    msg->content[content_len] = '\0';
+    msg->type = type;
+    msg->next = NULL;
+    
+    /* Add to history */
+    if (!ai_ctx->history->head) {
+        ai_ctx->history->head = msg;
+        ai_ctx->history->tail = msg;
+    } else {
+        ai_ctx->history->tail->next = msg;
+        ai_ctx->history->tail = msg;
+    }
+    
+    ai_ctx->history->message_count++;
+    
+    /* Trim history if needed */
+    if (ai_ctx->history->message_count > MAX_HISTORY_MESSAGES) {
+        ghost_ai_trim_history(ai_ctx);
+    }
+}
+
+/* Trim history to maximum size by removing oldest messages */
+void ghost_ai_trim_history(ghost_ai_context *ai_ctx) {
+    if (!ai_ctx || !ai_ctx->history || !ai_ctx->history->head) return;
+    
+    while (ai_ctx->history->message_count > MAX_HISTORY_MESSAGES && ai_ctx->history->head) {
+        conversation_message *old_head = ai_ctx->history->head;
+        ai_ctx->history->head = old_head->next;
+        
+        if (old_head->content) {
+            free(old_head->content);
+        }
+        free(old_head);
+        
+        ai_ctx->history->message_count--;
+    }
+    
+    /* Update tail if we emptied the history */
+    if (!ai_ctx->history->head) {
+        ai_ctx->history->tail = NULL;
+    }
+}
+
+/* Clear all history */
+void ghost_ai_clear_history(ghost_ai_context *ai_ctx) {
+    if (!ai_ctx || !ai_ctx->history) return;
+    
+    conversation_message *current = ai_ctx->history->head;
+    while (current) {
+        conversation_message *next = current->next;
+        if (current->content) {
+            free(current->content);
+        }
+        free(current);
+        current = next;
+    }
+    
+    ai_ctx->history->head = NULL;
+    ai_ctx->history->tail = NULL;
+    ai_ctx->history->message_count = 0;
+}
+
 ghost_ai_context *ghost_ai_init(void) {
     ghost_ai_context *ctx = NULL;
     const char *api_key = NULL;
@@ -82,6 +177,13 @@ ghost_ai_context *ghost_ai_init(void) {
     ctx->system_prompt = NULL;
     ctx->last_response = NULL;
     ctx->is_ghost_mode = 0;
+    
+    /* Initialize conversation history */
+    ctx->history = init_conversation_history();
+    if (!ctx->history) {
+        ghost_ai_cleanup(ctx);
+        return NULL;
+    }
     
     /* Get API key from environment */
     api_key = getenv("OPENAI_API_KEY");
@@ -145,6 +247,12 @@ ghost_ai_context *ghost_ai_init(void) {
 
 void ghost_ai_cleanup(ghost_ai_context *ai_ctx) {
     if (!ai_ctx) return;
+    
+    if (ai_ctx->history) {
+        ghost_ai_clear_history(ai_ctx);
+        free(ai_ctx->history);
+        ai_ctx->history = NULL;
+    }
     
     if (ai_ctx->api_key) {
         /* Securely clear API key from memory */
@@ -224,14 +332,62 @@ int ghost_ai_process(const char *prompt, ghost_ai_context *ai_ctx, struct shell_
         goto cleanup;
     }
     
-    /* Prepare JSON payload manually */
+    /* Add user message to history */
+    ghost_ai_add_to_history(ai_ctx, MESSAGE_USER, prompt);
+    
+    /* Build messages array from history */
+    conversation_message *current = ai_ctx->history->head;
+    size_t messages_json_size = 1024;  /* Start with some buffer */
+    char *messages_json = malloc(messages_json_size);
+    if (!messages_json) goto cleanup;
+    
+    strcpy(messages_json, "[");
+    size_t json_len = 1;
+    
+    /* Add system message first */
+    json_len += snprintf(messages_json + json_len, messages_json_size - json_len,
+                        "{\"role\":\"system\",\"content\":\"%s\"}", escaped_system);
+    free(escaped_system);
+    
+    /* Add messages from history */
+    while (current) {
+        const char *role = NULL;
+        switch (current->type) {
+            case MESSAGE_USER: role = "user"; break;
+            case MESSAGE_ASSISTANT: role = "assistant"; break;
+            case MESSAGE_COMMAND_OUTPUT: role = "user"; break;
+            default: continue;  /* Skip other types */
+        }
+        
+        char *escaped_content = escape_json_string(current->content);
+        if (!escaped_content) continue;
+        
+        /* Check if we need more buffer space */
+        size_t needed = json_len + strlen(escaped_content) + 64;
+        if (needed > messages_json_size) {
+            messages_json_size = needed * 2;
+            char *new_buffer = realloc(messages_json, messages_json_size);
+            if (!new_buffer) {
+                free(escaped_content);
+                goto cleanup;
+            }
+            messages_json = new_buffer;
+        }
+        
+        json_len += snprintf(messages_json + json_len, messages_json_size - json_len,
+                           ",{\"role\":\"%s\",\"content\":\"%s\"}", role, escaped_content);
+        free(escaped_content);
+        current = current->next;
+    }
+    
+    strcat(messages_json + json_len, "]");
+    
+    /* Prepare JSON payload */
     int written = snprintf(payload, MAX_RESPONSE_SIZE,
-             "{\"model\":\"%s\","
-             "\"messages\":["
-             "{\"role\":\"system\",\"content\":\"%s\"},"
-             "{\"role\":\"user\",\"content\":\"%s\"}"
-             "]}",
-             OPENAI_MODEL, escaped_system, escaped_prompt);
+                         "{\"model\":\"%s\",\"messages\":%s}",
+                         OPENAI_MODEL, messages_json);
+    
+    free(messages_json);
     
     if (written >= MAX_RESPONSE_SIZE) {
         goto cleanup;
@@ -371,11 +527,15 @@ int ghost_ai_process(const char *prompt, ghost_ai_context *ai_ctx, struct shell_
         }
     }
     
+    /* Add AI response to history */
+    if (ai_ctx->last_response) {
+        ghost_ai_add_to_history(ai_ctx, MESSAGE_ASSISTANT, ai_ctx->last_response);
+    }
+    
 cleanup:
     if (headers) curl_slist_free_all(headers);
     if (curl) curl_easy_cleanup(curl);
     free(escaped_prompt);
-    free(escaped_system);
     free(payload);
     free(response);
     
@@ -561,7 +721,7 @@ void ghost_ai_display_command(const char *command, char *modified_command, size_
     fflush(stdout);
 }
 
-char *ghost_ai_capture_command_output(const char *command, struct shell_context *shell_ctx) {
+char *ghost_ai_capture_command_output(const char *command, ghost_ai_context *ai_ctx, struct shell_context *shell_ctx) {
     FILE *fp;
     char *output = NULL;
     size_t output_size = 0;
@@ -592,6 +752,12 @@ char *ghost_ai_capture_command_output(const char *command, struct shell_context 
     }
 
     pclose(fp);
+
+    /* Add command output to history */
+    if (output && ai_ctx && ai_ctx->history) {
+        ghost_ai_add_to_history(ai_ctx, MESSAGE_COMMAND_OUTPUT, output);
+    }
+
     return output;
 }
 
@@ -692,7 +858,7 @@ void ghost_ai_execute_commands(char **commands, int cmd_count, struct shell_cont
         ghost_ai_display_command(commands[i], modified_command, sizeof(modified_command));
         
         /* Execute the command and capture output */
-        output = ghost_ai_capture_command_output(commands[i], shell_ctx);
+        output = ghost_ai_capture_command_output(modified_command, shell_ctx->ai_ctx, shell_ctx);
         if (output) {
             /* Print the output */
             printf("%s", output);
