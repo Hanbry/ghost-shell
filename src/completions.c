@@ -56,7 +56,7 @@ static void print_completions_columns(char **items, size_t count) {
 /* Initialize command list for completion */
 void completions_init(void) {
     /* Add built-in commands */
-    const char *builtins[] = {"cd", "exit", "help", "history", "call", "export"};
+    const char *builtins[] = {"cd", "exit", "help", "history", "call", "export", "source", "."};
     for (size_t i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
         char **new_commands = realloc(commands, (num_commands + 1) * sizeof(char*));
         if (new_commands) {

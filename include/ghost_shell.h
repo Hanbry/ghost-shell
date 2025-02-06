@@ -65,6 +65,7 @@ int builtin_help(ghost_command *cmd, shell_context *ctx);
 int builtin_history(ghost_command *cmd, shell_context *ctx);
 int builtin_call(ghost_command *cmd, shell_context *ctx);
 int builtin_export(ghost_command *cmd, shell_context *ctx);
+int builtin_source(ghost_command *cmd, shell_context *ctx);
 
 /* Utility functions */
 char *read_line(void);

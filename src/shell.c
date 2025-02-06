@@ -46,7 +46,7 @@ void shell_init(shell_context *ctx) {
         if (home) {
             ctx->history_file = malloc(strlen(home) + 20);
             if (ctx->history_file) {
-                sprintf(ctx->history_file, "%s/.ghost_history", home);
+                sprintf(ctx->history_file, "%s/.ghsh_history", home);
                 history(hist, &ev, H_LOAD, ctx->history_file);
             }
         }

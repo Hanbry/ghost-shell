@@ -536,7 +536,9 @@ static int is_builtin(const char *cmd) {
             strcmp(cmd, "help") == 0 ||
             strcmp(cmd, "history") == 0 ||
             strcmp(cmd, "call") == 0 ||
-            strcmp(cmd, "export") == 0);
+            strcmp(cmd, "export") == 0 ||
+            strcmp(cmd, ".") == 0 ||
+            strcmp(cmd, "source") == 0);
 }
 
 static int handle_builtin(ghost_command *cmd, shell_context *ctx) {
@@ -552,6 +554,8 @@ static int handle_builtin(ghost_command *cmd, shell_context *ctx) {
         return builtin_call(cmd, ctx);
     } else if (strcmp(cmd->name, "export") == 0) {
         return builtin_export(cmd, ctx);
+    } else if (strcmp(cmd->name, ".") == 0 || strcmp(cmd->name, "source") == 0) {
+        return builtin_source(cmd, ctx);
     }
     return 1;
 }

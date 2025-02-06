@@ -167,3 +167,71 @@ int builtin_export(ghost_command *cmd, shell_context *ctx) {
     
     return 0;
 }
+
+int builtin_source(ghost_command *cmd, shell_context *ctx) {
+    if (cmd->arg_count < 2) {
+        print_error("source: missing file argument");
+        return 1;
+    }
+
+    /* Expand ~ to home directory if needed */
+    char *filename = cmd->args[1];
+    char expanded_path[PATH_MAX];
+    if (filename[0] == '~' && (filename[1] == '/' || filename[1] == '\0')) {
+        const char *home = getenv("HOME");
+        if (!home) {
+            print_error("source: HOME environment variable not set");
+            return 1;
+        }
+        snprintf(expanded_path, sizeof(expanded_path), "%s%s", home, filename + 1);
+        filename = expanded_path;
+    }
+
+    /* Try to open and read the file */
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        /* Silently ignore non-existent rc/profile files */
+        if (strstr(filename, ".ghshrc") || strstr(filename, ".ghsh_profile")) {
+            return 0;
+        }
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "source: %s: %s", filename, strerror(errno));
+        print_error(error_msg);
+        return 1;
+    }
+
+    char line[GHOST_MAX_INPUT_SIZE];
+    int status = 0;
+    int line_num = 0;
+
+    while (fgets(line, sizeof(line), file)) {
+        line_num++;
+        
+        /* Remove trailing newline */
+        size_t len = strlen(line);
+        if (len > 0 && line[len-1] == '\n') {
+            line[len-1] = '\0';
+        }
+        
+        /* Skip empty lines and comments */
+        if (line[0] == '\0' || line[0] == '#') {
+            continue;
+        }
+
+        /* Parse and execute the command */
+        ghost_command *source_cmd = parse_command(line);
+        if (source_cmd) {
+            int cmd_status = execute_command(source_cmd, ctx);
+            if (cmd_status != 0) {
+                char error_msg[256];
+                snprintf(error_msg, sizeof(error_msg), "source: error in %s line %d", filename, line_num);
+                print_error(error_msg);
+                status = cmd_status;
+            }
+            free_command(source_cmd);
+        }
+    }
+
+    fclose(file);
+    return status;
+}

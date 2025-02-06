@@ -1,106 +1,66 @@
-# Ghost Shell
+# Ghost (in the) Shell
 
-A lightweight and extensible shell implementation written in C, licensed under MIT.
+A C shell implementation with an integrated AI assistant that helps you accomplish tasks on your machine. The "ghost" in the shell is an AI that understands your intent and helps you achieve it through commands.
 
-## Features
+## 🧠 The Ghost - AI Assistant
 
-- Basic command execution
-- Built-in commands (`cd`, `exit`, `help`)
-- Input/output redirection (`<`, `>`)
-- Background process execution (`&`)
-- Error handling and reporting
-- Memory management
-- Clean and modular code structure
-- Tab completion and command history
+The shell's standout feature is its integrated AI that can:
+- Understand natural language requests and convert them to shell commands
+- It will work on the command line as you would expect from a human
+
+Example interactions:
+```bash
+# Ask the ghost to perform a task
+call create a backup of my documents folder and compress it
+```
+
+## Quick Start
+
+Build and run:
+```bash
+make
+./bin/ghost-shell        # Start as interactive non-login shell
+./bin/ghost-shell -l     # Start as login shell
+# or
+./bin/ghost-shell --login
+```
+
+The only requirement is an OpenAI API key:
+```bash
+export OPENAI_API_KEY='your-api-key'
+```
+
+## Shell Startup Files
+
+The shell uses two startup files:
+
+1. `~/.ghsh_profile`: Sourced only for login shells
+   - Use this for environment variables, PATH settings
+   - Typically used for machine-wide configuration
+
+2. `~/.ghshrc`: Sourced for all interactive shells (including login shells)
+   - Use this for shell customizations (aliases, functions, prompt settings)
+   - Sourced after .ghsh_profile for login shells
+
+Login shells will source both files, while non-login interactive shells will only source `~/.ghshrc`.
+
+## Standard Shell Features
+
+Also includes all standard shell features:
+- Command execution with environment variables
+- I/O redirection (`<`, `>`, `>>`) and pipelines (`|`)
+- Background processes (`&`) and here-docs (`<<`)
+- Command history (stored in ~/.ghsh_history) and tab completion
+- Custom prompt and line editing
 
 ## Dependencies
 
-The shell requires a line editing library. By default, it uses libedit (BSD-licensed):
-- On macOS: Already installed (uses system libedit)
-- On Linux/BSD: Install libedit
-  ```bash
-  # Ubuntu/Debian
-  sudo apt-get install libedit-dev
-  
-  # Fedora
-  sudo dnf install libedit-devel
-  
-  # FreeBSD
-  sudo pkg install libedit
-  ```
-
-## Building
-
-The project uses a simple Makefile build system:
-
+On Linux/BSD systems, you'll need to install dependencies first:
 ```bash
-# Build release version (using libedit - BSD licensed)
-make
-
-# Build debug version (using libedit)
-make debug
-
-# Clean build artifacts
-make clean
-
-# Optional: Build with GNU readline (creates GPL dependency)
-make readline
+# Ubuntu/Debian
+sudo apt-get install libedit-dev
 ```
-
-### License Considerations
-
-- Default build uses libedit (BSD-licensed) and is MIT-compatible
-- Optional readline build creates GPL dependency due to GNU readline
-- If you build with `make readline`, the resulting binary must be distributed under GPL
-
-## Project Structure
-
-- `src/` - Source files
-  - `main.c` - Entry point and shell initialization
-  - `shell.c` - Core shell loop and utilities
-  - `command.c` - Command parsing and execution
-  - `builtins.c` - Built-in command implementations
-- `include/` - Header files
-  - `ghost_shell.h` - Main header with structures and function declarations
-- `build/` - Object files (created during build)
-- `bin/` - Binary output directory
-
-## Usage
-
-After building, run the shell:
-
-```bash
-./bin/ghost-shell
-```
-
-### Basic Commands
-
-```bash
-# Change directory
-cd [directory]
-
-# Get help
-help
-
-# Exit the shell
-exit [status]
-
-# Run a command in background
-command &
-
-# Input/Output redirection
-command < input.txt > output.txt
-```
-
-## Development
-
-The shell is designed to be extensible. New features can be added by:
-
-1. Adding new command structures in `ghost_shell.h`
-2. Implementing command parsing in `command.c`
-3. Adding command execution logic in `shell.c`
-4. Implementing new built-in commands in `builtins.c`
 
 ## License
 
-This project is licensed under the terms specified in the LICENSE file. 
+MIT licensed. See LICENSE file. 
