@@ -1,5 +1,6 @@
 #include "ghost_shell.h"
 #include "ghost_ai.h"
+#include "json_parser.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -360,96 +361,36 @@ int ghost_ai_process(const char *prompt, ghost_ai_context *ai_ctx, struct shell_
         goto cleanup;
     }
 
-    /* Parse JSON response manually */
-    char *content = NULL;
-    size_t content_size = 0;
-    char *choices_start = strstr(response, "\"choices\"");
-    if (!choices_start) {
-        fprintf(stderr, "No choices in response\n");
-        goto cleanup;
-    }
-    
-    char *message_start = strstr(choices_start, "\"message\"");
-    if (!message_start) {
-        fprintf(stderr, "No message in choices\n");
+    /* Parse JSON response */
+    char *content = parse_ai_response_content(response);
+    if (!content) {
+        fprintf(stderr, "Failed to parse AI response\n");
         goto cleanup;
     }
 
-    char *content_start = strstr(message_start, "\"content\"");
-    if (!content_start) {
-        fprintf(stderr, "No content field in message\n");
-        goto cleanup;
+    /* Save AI response for later analysis */
+    if (ai_ctx->last_response) {
+        free(ai_ctx->last_response);
     }
+    ai_ctx->last_response = strdup(content);
 
-    content_start = strchr(content_start + 9, '"');  /* Skip "content" and find opening quote */
-    if (!content_start) {
-        fprintf(stderr, "Malformed content field\n");
-        goto cleanup;
-    }
-
-    content_start++;  /* Skip opening quote */
-    char *content_end = content_start;
-    int in_escape = 0;
-    while (*content_end) {
-        if (*content_end == '\\' && !in_escape) {
-            in_escape = 1;
-        } else {
-            if (*content_end == '"' && !in_escape) {
-                break;
+    /* If in ghost mode, parse and execute commands */
+    if (ai_ctx->is_ghost_mode) {
+        size_t cmd_count;
+        char **commands = ghost_ai_parse_commands(content, &cmd_count);
+        if (commands && cmd_count > 0) {
+            ghost_ai_execute_commands(commands, cmd_count, shell_ctx);
+            for (size_t i = 0; i < cmd_count; i++) {
+                if (commands[i]) free(commands[i]);
             }
-            in_escape = 0;
+            free(commands);
+            result = 0;
         }
-        content_end++;
+    } else {
+        result = 0;
     }
-    
-    if (*content_end == '"') {
-        content_size = content_end - content_start;
-        content = malloc(content_size + 1);
-        if (content) {
-            char *w = content;
-            const char *r = content_start;
-            while (r < content_end) {
-                if (*r == '\\' && *(r + 1)) {
-                    r++;
-                    switch (*r) {
-                        case 'n': *w++ = '\n'; break;
-                        case 'r': *w++ = '\r'; break;
-                        case 't': *w++ = '\t'; break;
-                        case '"': *w++ = '"';  break;
-                        case '\\': *w++ = '\\'; break;
-                        default:  *w++ = *r;   break;
-                    }
-                } else {
-                    *w++ = *r;
-                }
-                r++;
-            }
-            *w = '\0';
+    free(content);
 
-            /* Save AI response for later analysis */
-            if (ai_ctx->last_response) {
-                free(ai_ctx->last_response);
-            }
-            ai_ctx->last_response = strdup(content);
-
-            /* If in ghost mode, parse and execute commands */
-            if (ai_ctx->is_ghost_mode) {
-                size_t cmd_count;
-                char **commands = ghost_ai_parse_commands(content, &cmd_count);
-                if (commands && cmd_count > 0) {
-                    ghost_ai_execute_commands(commands, cmd_count, shell_ctx);
-                    for (size_t i = 0; i < cmd_count; i++) {
-                        if (commands[i]) free(commands[i]);
-                    }
-                    free(commands);
-                    result = 0;
-                }
-            } else {
-                result = 0;
-            }
-            free(content);
-        }
-    }
     ghost_ai_add_to_history(ai_ctx, MESSAGE_ASSISTANT, ai_ctx->last_response ? ai_ctx->last_response : "");
 
 cleanup:
