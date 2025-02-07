@@ -18,7 +18,7 @@ TARGET = $(BIN_DIR)/ghost-shell
 
 all: release
 
-debug: CFLAGS += $(DEBUG_FLAGS)
+debug: CFLAGS += $(DEBUG_FLAGS) -DDEBUG
 debug: $(TARGET)
 
 release: CFLAGS += $(RELEASE_FLAGS)

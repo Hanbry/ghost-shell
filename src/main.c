@@ -1,4 +1,7 @@
+#include <stdio.h>
+#include <stdlib.h>
 #include "ghost_shell.h"
+#include "logger.h"
 #include <limits.h>
 
 /* Check if we're a login shell based on various criteria */
@@ -22,6 +25,17 @@ static int is_login_shell(const char *argv0, int argc, char *argv[]) {
 }
 
 int main(int argc, char *argv[]) {
+    // Initialize logger first
+    if (logger_init() != 0) {
+        fprintf(stderr, "Failed to initialize logger\n");
+        return 1;
+    }
+
+    // Test all logging levels
+    LOG_DEBUG("Debug level test: argc=%d, first arg=%s", argc, argv[0]);
+    LOG_INFO("Info level test: Ghost Shell starting up...");
+    LOG_ERROR("Error level test: This is a test error message");
+    
     shell_context ctx;
     
     /* Determine shell type */
@@ -63,7 +77,7 @@ int main(int argc, char *argv[]) {
         }
     }
     
-    /* Print welcome message with high-tech ASCII art */
+    /* Print welcome message with ASCII art */
     printf("\n");
     printf("   ▄████  ██░ ██  ▒█████    ██████ ▄▄▄█████▓\n");
     printf("  ██▒ ▀█▒▓██░ ██▒▒██▒  ██▒▒██    ▒ ▓  ██▒ ▓▒\n");
@@ -90,6 +104,9 @@ int main(int argc, char *argv[]) {
     
     /* Cleanup before exit */
     shell_cleanup(&ctx);
+    
+    // Cleanup logger before exit
+    logger_cleanup();
     
     return ctx.last_status;
 }
