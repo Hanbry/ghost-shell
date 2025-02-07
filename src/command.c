@@ -10,6 +10,7 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <histedit.h>
+#include <glob.h>
 
 /* Forward declarations of static functions */
 static ghost_command *parse_single_command(char *input, char **next_cmd);
@@ -138,6 +139,82 @@ ghost_command *parse_command(const char *input) {
     return first_cmd;
 }
 
+/* Helper function to expand wildcards in arguments */
+static char **expand_wildcards(char **args, size_t *arg_count) {
+    char **new_args = NULL;
+    size_t new_count = 0;
+    size_t capacity = *arg_count;
+
+    new_args = malloc(capacity * sizeof(char*));
+    if (!new_args) return NULL;
+
+    for (size_t i = 0; i < *arg_count; i++) {
+        if (strchr(args[i], '*') || strchr(args[i], '?') || strchr(args[i], '[')) {
+            glob_t globbuf;
+            int flags = GLOB_NOCHECK | GLOB_TILDE;
+            
+            if (glob(args[i], flags, NULL, &globbuf) == 0) {
+                // Need more space?
+                if (new_count + globbuf.gl_pathc > capacity) {
+                    capacity = new_count + globbuf.gl_pathc + *arg_count;
+                    char **temp = realloc(new_args, capacity * sizeof(char*));
+                    if (!temp) {
+                        globfree(&globbuf);
+                        for (size_t j = 0; j < new_count; j++) {
+                            free(new_args[j]);
+                        }
+                        free(new_args);
+                        return NULL;
+                    }
+                    new_args = temp;
+                }
+
+                // Add expanded paths
+                for (size_t j = 0; j < globbuf.gl_pathc; j++) {
+                    new_args[new_count] = strdup(globbuf.gl_pathv[j]);
+                    if (!new_args[new_count]) {
+                        globfree(&globbuf);
+                        for (size_t k = 0; k < new_count; k++) {
+                            free(new_args[k]);
+                        }
+                        free(new_args);
+                        return NULL;
+                    }
+                    new_count++;
+                }
+                globfree(&globbuf);
+            }
+        } else {
+            // No wildcards, just copy the argument
+            if (new_count >= capacity) {
+                capacity *= 2;
+                char **temp = realloc(new_args, capacity * sizeof(char*));
+                if (!temp) {
+                    for (size_t j = 0; j < new_count; j++) {
+                        free(new_args[j]);
+                    }
+                    free(new_args);
+                    return NULL;
+                }
+                new_args = temp;
+            }
+            new_args[new_count] = strdup(args[i]);
+            if (!new_args[new_count]) {
+                for (size_t j = 0; j < new_count; j++) {
+                    free(new_args[j]);
+                }
+                free(new_args);
+                return NULL;
+            }
+            new_count++;
+        }
+    }
+
+    // Update the argument count
+    *arg_count = new_count;
+    return new_args;
+}
+
 static ghost_command *parse_single_command(char *input, char **next_cmd) {
     ghost_command *cmd = calloc(1, sizeof(ghost_command));
     char *expanded_input;
@@ -169,6 +246,17 @@ static ghost_command *parse_single_command(char *input, char **next_cmd) {
     if (!cmd->args || cmd->arg_count == 0) {
         free(cmd);
         return NULL;
+    }
+
+    /* Expand wildcards in arguments */
+    char **expanded_args = expand_wildcards(cmd->args, &cmd->arg_count);
+    if (expanded_args) {
+        // Free old arguments
+        for (size_t i = 0; i < cmd->arg_count; i++) {
+            free(cmd->args[i]);
+        }
+        free(cmd->args);
+        cmd->args = expanded_args;
     }
     
     /* First argument is the command name */

@@ -30,11 +30,6 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Failed to initialize logger\n");
         return 1;
     }
-
-    // Test all logging levels
-    LOG_DEBUG("Debug level test: argc=%d, first arg=%s", argc, argv[0]);
-    LOG_INFO("Info level test: Ghost Shell starting up...");
-    LOG_ERROR("Error level test: This is a test error message");
     
     shell_context ctx;
     
