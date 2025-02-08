@@ -670,6 +670,15 @@ void ghost_ai_execute_commands(char **commands, size_t cmd_count, struct shell_c
         char modified_command[4096];
         char *output = NULL;
         ghost_ai_display_command(commands[i], modified_command, sizeof(modified_command));
+        
+        /* Add command to shell history */
+        if (hist && modified_command[0] != '\0') {
+            history(hist, &ev, H_ENTER, modified_command);
+            if (shell_ctx->history_file) {
+                history(hist, &ev, H_SAVE, shell_ctx->history_file);
+            }
+        }
+        
         output = ghost_ai_capture_command_output(modified_command, shell_ctx->ai_ctx);
         if (output) {
             printf("%s", output);
