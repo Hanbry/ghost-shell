@@ -333,22 +333,20 @@ unsigned char ghost_complete(EditLine *edit_line, int ch) {
         
         /* Insert completion */
         if (last_slash) {
-            /* Preserve directory part */
-            char *completion = malloc(strlen(dir_part) + strlen(common_prefix) + 2);
+            /* Preserve directory part and handle special cases */
+            char *completion = NULL;
+            size_t completion_size = 0;
+            
+            /* Always preserve the original directory structure */
+            const char *prefix = dir_part;
+            const char *separator = "/";
+            completion_size = strlen(prefix) + strlen(separator) + strlen(common_prefix) + 1;
+            completion = malloc(completion_size);
             if (completion) {
-                if (dir_part[0] == '.' && dir_part[1] == '\0') {
-                    /* For current directory (.), preserve ./ if it was in the original word */
-                    if (strncmp(word, "./", 2) == 0) {
-                        sprintf(completion, "./%s", common_prefix);
-                    } else {
-                        strcpy(completion, common_prefix);
-                    }
-                } else if (dir_part[0] == '/' && dir_part[1] == '\0') {
-                    /* Root directory - avoid double slash */
-                    sprintf(completion, "/%s", common_prefix);
-                } else {
-                    sprintf(completion, "%s/%s", dir_part, common_prefix);
-                }
+                snprintf(completion, completion_size, "%s%s%s", prefix, separator, common_prefix);
+            }
+            
+            if (completion) {
                 el_insertstr(edit_line, completion);
                 free(completion);
             }
