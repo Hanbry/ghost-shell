@@ -249,12 +249,15 @@ unsigned char ghost_complete(EditLine *edit_line, int ch) {
     int completing_command = (word_start == line_info->buffer);
     int completing_cd = 0;
     
-    /* Check if we're completing after 'cd' */
+    /* Check if we're completing after 'cd' or starting with ./ */
     if (!completing_command) {
         const char *cmd_start = line_info->buffer;
         while (isspace(*cmd_start)) cmd_start++;
         completing_cd = (strncmp(cmd_start, "cd", 2) == 0 && 
                        (isspace(cmd_start[2]) || cmd_start[2] == '\0'));
+    } else if (strncmp(word, "./", 2) == 0) {
+        /* If starting with ./, treat as file completion instead of command */
+        completing_command = 0;
     }
     
     /* Get directory and file parts for path completion */
@@ -334,7 +337,12 @@ unsigned char ghost_complete(EditLine *edit_line, int ch) {
             char *completion = malloc(strlen(dir_part) + strlen(common_prefix) + 2);
             if (completion) {
                 if (dir_part[0] == '.' && dir_part[1] == '\0') {
-                    strcpy(completion, common_prefix);
+                    /* For current directory (.), preserve ./ if it was in the original word */
+                    if (strncmp(word, "./", 2) == 0) {
+                        sprintf(completion, "./%s", common_prefix);
+                    } else {
+                        strcpy(completion, common_prefix);
+                    }
                 } else if (dir_part[0] == '/' && dir_part[1] == '\0') {
                     /* Root directory - avoid double slash */
                     sprintf(completion, "/%s", common_prefix);
